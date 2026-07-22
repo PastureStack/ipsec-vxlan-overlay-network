@@ -5,17 +5,17 @@ import (
 	"net"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/rancher/go-rancher-metadata/metadata"
+	"github.com/sirupsen/logrus"
 )
 
-const (
-	defaultMetadataURL = "http://rancher-metadata.rancher.internal/2015-12-19"
-)
+// DefaultMetadataURL is the current PastureStack metadata endpoint.
+const DefaultMetadataURL = "http://169.254.169.250/2015-12-19"
 
 // MetadataStore contains information related to metadata client, etc
 type MetadataStore struct {
 	mc                metadata.Client
+	clientIP          string
 	self              Entry
 	entries           []Entry
 	local             map[string]Entry
@@ -46,7 +46,7 @@ func NewMetadataStoreWithClientIP(userURL, clientIP string) (*MetadataStore, err
 	if userURL != "" {
 		metadataURL = userURL
 	} else {
-		metadataURL = defaultMetadataURL
+		metadataURL = DefaultMetadataURL
 	}
 
 	logrus.Debugf("Creating new MetadataStore, metadataURL: %v, clientIP: %v", metadataURL, clientIP)
@@ -58,6 +58,7 @@ func NewMetadataStoreWithClientIP(userURL, clientIP string) (*MetadataStore, err
 
 	ms := &MetadataStore{}
 	ms.mc = mc
+	ms.clientIP = clientIP
 
 	return ms, nil
 }
@@ -68,7 +69,7 @@ func NewMetadataStore(userURL string) (*MetadataStore, error) {
 	if userURL != "" {
 		metadataURL = userURL
 	} else {
-		metadataURL = defaultMetadataURL
+		metadataURL = DefaultMetadataURL
 	}
 
 	logrus.Debugf("Creating new MetadataStore, metadataURL: %v", metadataURL)
@@ -82,6 +83,33 @@ func NewMetadataStore(userURL string) (*MetadataStore, error) {
 	ms.mc = mc
 
 	return ms, nil
+}
+
+func findSelfContainerByIP(containers []metadata.Container, clientIP string) (metadata.Container, error) {
+	for _, container := range containers {
+		if container.PrimaryIp == clientIP {
+			return container, nil
+		}
+	}
+	return metadata.Container{}, fmt.Errorf("couldn't find self container with primary IP %s in metadata", clientIP)
+}
+
+func findHostByUUID(hosts []metadata.Host, uuid string) (metadata.Host, error) {
+	for _, host := range hosts {
+		if host.UUID == uuid {
+			return host, nil
+		}
+	}
+	return metadata.Host{}, fmt.Errorf("couldn't find host %s in metadata", uuid)
+}
+
+func findServiceForContainer(services []metadata.Service, container metadata.Container) (metadata.Service, error) {
+	for _, service := range services {
+		if service.StackName == container.StackName && service.Name == container.ServiceName {
+			return service, nil
+		}
+	}
+	return metadata.Service{}, fmt.Errorf("couldn't find service %s/%s in metadata", container.StackName, container.ServiceName)
 }
 
 // LocalHostIpAddress returns the IP address of the host where the agent is running
@@ -211,7 +239,7 @@ func (ms *MetadataStore) getLinkedPeersInfo() (map[string]bool, []metadata.Conta
 			linkedServices, ok := ms.info.servicesMapByName[linkedServiceName]
 			logrus.Debugf("linkedServices: %+v", linkedServices)
 			if !ok {
-				logrus.Errorf("Current service is linked to service: %v, but cannot find in servicesMapByName")
+				logrus.Errorf("Current service is linked to service: %v, but cannot find in servicesMapByName", linkedServiceName)
 				continue
 			} else {
 				for _, aService := range linkedServices {
@@ -352,16 +380,7 @@ func (ms *MetadataStore) Reload() error {
 	logrus.Debugf("Reloading ...")
 
 	selfContainer, err := ms.mc.GetSelfContainer()
-	if err != nil {
-		logrus.Errorf("couldn't get self container from metadata: %v", err)
-		return err
-	}
-
-	selfHost, err := ms.mc.GetSelfHost()
-	if err != nil {
-		logrus.Errorf("couldn't get self host from metadata: %v", err)
-		return err
-	}
+	selfContainerErr := err
 
 	hosts, err := ms.mc.GetHosts()
 	if err != nil {
@@ -375,16 +394,48 @@ func (ms *MetadataStore) Reload() error {
 		return err
 	}
 
-	selfService, err := ms.mc.GetSelfService()
-	if err != nil {
-		logrus.Errorf("couldn't get self service from metadata: %v", err)
-		return err
-	}
-
 	services, err := ms.mc.GetServices()
 	if err != nil {
 		logrus.Errorf("couldn't get services from metadata: %v", err)
 		return err
+	}
+
+	var selfHost metadata.Host
+	var selfService metadata.Service
+
+	if selfContainerErr != nil {
+		if ms.clientIP == "" {
+			logrus.Errorf("couldn't get self container from metadata: %v", selfContainerErr)
+			return selfContainerErr
+		}
+		logrus.Warnf("couldn't get self container from metadata, falling back to client IP %s: %v", ms.clientIP, selfContainerErr)
+		selfContainer, err = findSelfContainerByIP(containers, ms.clientIP)
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
+		selfHost, err = findHostByUUID(hosts, selfContainer.HostUUID)
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
+		selfService, err = findServiceForContainer(services, selfContainer)
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
+	} else {
+		selfHost, err = ms.mc.GetSelfHost()
+		if err != nil {
+			logrus.Errorf("couldn't get self host from metadata: %v", err)
+			return err
+		}
+
+		selfService, err = ms.mc.GetSelfService()
+		if err != nil {
+			logrus.Errorf("couldn't get self service from metadata: %v", err)
+			return err
+		}
 	}
 
 	servicesMapByName := getServicesMapByName(services, selfService)

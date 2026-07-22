@@ -1,32 +1,67 @@
-FROM ubuntu:16.04
-# FROM arm=armhf/ubuntu:16.04
+FROM ubuntu:26.04@sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb
 
-ARG DAPPER_HOST_ARCH
+ARG DAPPER_HOST_ARCH=amd64
+ARG GO_VERSION=1.26.5
+ARG DOCKER_VERSION=29.5.2
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
+ARG GO_LINUX_AMD64_SHA256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG DOCKER_LINUX_AMD64_SHA256=6d81a5be56232d9cc047e60b7110a087793536ae5a8b465719cd303f05fc56ec
+
+ENV DEBIAN_FRONTEND=noninteractive
 ENV HOST_ARCH=${DAPPER_HOST_ARCH} ARCH=${DAPPER_HOST_ARCH}
 
-RUN apt-get update && \
-    apt-get install -y gcc ca-certificates git wget curl vim less file && \
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g; s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources; \
+    fi; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        file \
+        gcc \
+        git \
+        jq \
+        libc6-dev \
+        make \
+        tar \
+        xz-utils && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -f /usr/bin/pebble && \
     rm -f /bin/sh && ln -s /bin/bash /bin/sh
 
-ENV GOLANG_ARCH_amd64=amd64 GOLANG_ARCH_arm=armv6l GOLANG_ARCH=GOLANG_ARCH_${ARCH} \
-    GOPATH=/go PATH=/go/bin:/usr/local/go/bin:${PATH} SHELL=/bin/bash
+ENV GOPATH=/go \
+    PATH=/go/bin:/usr/local/go/bin:${PATH} \
+    SHELL=/bin/bash \
+    GO111MODULE=off \
+    GO15VENDOREXPERIMENT=1 \
+    GOCACHE=/tmp/go-build-cache \
+    GOTELEMETRY=off \
+    XDG_CONFIG_HOME=/tmp/go-config \
+    GIT_CONFIG_GLOBAL=/tmp/gitconfig
 
-RUN wget -O - https://storage.googleapis.com/golang/go1.7.3.linux-${!GOLANG_ARCH}.tar.gz | tar -xzf - -C /usr/local && \
-    go get github.com/rancher/trash && go get github.com/golang/lint/golint
+RUN test "${DAPPER_HOST_ARCH}" = amd64 && \
+    curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" && \
+    echo "${GO_LINUX_AMD64_SHA256}  /tmp/go.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/go.tgz -C /usr/local && \
+    rm -f /tmp/go.tgz && \
+    go version
 
-ENV DOCKER_URL_amd64=https://get.docker.com/builds/Linux/x86_64/docker-1.10.3 \
-    DOCKER_URL_arm=https://github.com/rancher/docker/releases/download/v1.10.3-ros1/docker-1.10.3_arm \
-    DOCKER_URL=DOCKER_URL_${ARCH}
+RUN curl -fsSL -o /tmp/docker.tgz "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" && \
+    echo "${DOCKER_LINUX_AMD64_SHA256}  /tmp/docker.tgz" | sha256sum -c - && \
+    tar xzf /tmp/docker.tgz -C /usr/bin --strip-components=1 docker/docker && \
+    rm -f /tmp/docker.tgz && \
+    chmod +x /usr/bin/docker && \
+    docker --version
 
-RUN wget -O - ${!DOCKER_URL} > /usr/bin/docker && chmod +x /usr/bin/docker
-
-ENV DAPPER_ENV REPO TAG
-ENV DAPPER_SOURCE /go/src/github.com/rancher/rancher-net
-ENV DAPPER_OUTPUT ./bin ./dist
-ENV DAPPER_DOCKER_SOCKET true
-ENV TRASH_CACHE ${DAPPER_SOURCE}/.trash-cache
-ENV HOME ${DAPPER_SOURCE}
+ENV DAPPER_ENV="REPO IMAGE_NAMESPACE TAG IMAGE_REVISION VERSION_OVERRIDE RELEASE_VERSION SOURCE_DATE_EPOCH METADATA_CNI_IPAM_BINARY METADATA_CNI_IPAM_URL METADATA_CNI_IPAM_SHA256 PER_HOST_SUBNET_BINARY PER_HOST_SUBNET_URL PER_HOST_SUBNET_SHA256 HOST_LOCAL_CNI_IPAM_BINARY HOST_LOCAL_CNI_IPAM_URL HOST_LOCAL_CNI_IPAM_SHA256 FLAT_CNI_IPAM_BINARY FLAT_CNI_IPAM_URL FLAT_CNI_IPAM_SHA256 MOUNT_PROPAGATION_BINARY MOUNT_PROPAGATION_URL MOUNT_PROPAGATION_SHA256 DOCKER_BUILD_NETWORK UBUNTU_MIRROR"
+ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/ipsec-vxlan-overlay-network
+ENV DAPPER_OUTPUT="./bin ./dist"
+ENV DAPPER_DOCKER_SOCKET=true
+ENV HOME=${DAPPER_SOURCE}
 WORKDIR ${DAPPER_SOURCE}
+
+RUN git config --system --add safe.directory ${DAPPER_SOURCE}
 
 ENTRYPOINT ["./scripts/entry"]
 CMD ["ci"]

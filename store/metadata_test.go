@@ -1,9 +1,12 @@
+//go:build integration
+// +build integration
+
 package store
 
 import (
-	"github.com/Sirupsen/logrus"
 	"github.com/rancher/go-rancher-metadata/metadata"
 	rmd "github.com/rancher/rancher-metadata"
+	"github.com/sirupsen/logrus"
 	"reflect"
 	"testing"
 )
@@ -124,7 +127,7 @@ func TestGetHostsMapFromHostsArray(t *testing.T) {
 
 	hosts, err := mc.GetHosts()
 	if err != nil {
-		t.Error("not expecting error, got :%v", err)
+		t.Errorf("not expecting error, got: %v", err)
 	}
 
 	hostsMap := getHostsMapFromHostsArray(hosts)
@@ -133,6 +136,6 @@ func TestGetHostsMapFromHostsArray(t *testing.T) {
 	actual := hostsMap[testUUID].UUID
 
 	if actual != testUUID {
-		t.Error("expected ce5d0147-8f2d-4e87-86ea-977dd61f83df, got: %v", actual)
+		t.Errorf("expected ce5d0147-8f2d-4e87-86ea-977dd61f83df, got: %v", actual)
 	}
 }

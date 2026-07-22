@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 
-	"github.com/rancher/rancher-net/backend"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/backend"
 )
 
 // Server structure is used to the store backend information

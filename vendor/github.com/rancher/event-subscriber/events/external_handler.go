@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/rancher/go-rancher/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 type ProcessConfig struct {

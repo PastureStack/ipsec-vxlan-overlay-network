@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/mitchellh/mapstructure"
 	revents "github.com/rancher/event-subscriber/events"
 	"github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 type ReloadFunc func(file string) (Versions, error)

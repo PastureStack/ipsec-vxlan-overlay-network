@@ -1,0 +1,99 @@
+#!/bin/bash
+set -euo pipefail
+
+image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:v0.14.26}
+test_id=$$
+network="pasture-vxlan-it-${test_id}"
+node_a="pasture-vxlan-a-${test_id}"
+node_b="pasture-vxlan-b-${test_id}"
+work_dir=$(mktemp -d)
+
+cleanup() {
+    docker rm -f "$node_a" "$node_b" >/dev/null 2>&1 || true
+    docker network rm "$network" >/dev/null 2>&1 || true
+    rm -rf "$work_dir"
+}
+trap cleanup EXIT
+
+dump_logs() {
+    echo "--- node A ---" >&2
+    docker logs --tail 120 "$node_a" >&2 || true
+    echo "--- node B ---" >&2
+    docker logs --tail 120 "$node_b" >&2 || true
+}
+
+docker image inspect "$image" >/dev/null
+docker network create --driver bridge --subnet 172.31.254.0/24 "$network" >/dev/null
+mkdir -p "$work_dir/node-a" "$work_dir/node-b"
+
+cat > "$work_dir/node-a/config.json" <<'EOF'
+{"entries":[
+  {"peer":true,"self":true,"ip":"10.42.254.10/16","hostIp":"172.31.254.10"},
+  {"peer":true,"ip":"10.42.254.11/16","hostIp":"172.31.254.11"}
+]}
+EOF
+
+cat > "$work_dir/node-b/config.json" <<'EOF'
+{"entries":[
+  {"peer":true,"ip":"10.42.254.10/16","hostIp":"172.31.254.10"},
+  {"peer":true,"self":true,"ip":"10.42.254.11/16","hostIp":"172.31.254.11"}
+]}
+EOF
+
+start_node() {
+    local name=$1
+    local underlay=$2
+    local overlay=$3
+    local config_dir=$4
+
+    docker run -d \
+        --name "$name" \
+        --privileged \
+        --network "$network" \
+        --ip "$underlay" \
+        --entrypoint /bin/bash \
+        -v "$config_dir:/test:ro" \
+        "$image" \
+        -c "
+            set -euo pipefail
+            ip address add ${overlay}/32 dev eth0
+            exec ipsec-vxlan-overlay-network \\
+                --file /test/config.json \\
+                --local-ip ${overlay}/16 \\
+                --backend vxlan \\
+                --listen :8111 \\
+                --pid-file /var/run/ipsec-vxlan-overlay-network.pid
+        " >/dev/null
+}
+
+start_node "$node_a" 172.31.254.10 10.42.254.10 "$work_dir/node-a"
+start_node "$node_b" 172.31.254.11 10.42.254.11 "$work_dir/node-b"
+
+ready=false
+for attempt in $(seq 1 30); do
+    if docker exec "$node_a" ip link show vtep1042 >/dev/null 2>&1 && \
+       docker exec "$node_b" ip link show vtep1042 >/dev/null 2>&1 && \
+       docker exec "$node_a" bridge fdb show dev vtep1042 | grep -q '172.31.254.11' && \
+       docker exec "$node_b" bridge fdb show dev vtep1042 | grep -q '172.31.254.10'; then
+        ready=true
+        break
+    fi
+    sleep 1
+done
+
+if [ "$ready" != true ]; then
+    dump_logs
+    echo "VXLAN forwarding entries did not become ready" >&2
+    exit 1
+fi
+
+if ! docker exec "$node_a" ping -c 3 -W 2 -I 10.42.254.10 10.42.254.11 >/dev/null; then
+    dump_logs
+    docker exec "$node_a" ip -d link show vtep1042 >&2 || true
+    docker exec "$node_a" ip route >&2 || true
+    docker exec "$node_a" ip neigh >&2 || true
+    echo "VXLAN overlay traffic test failed" >&2
+    exit 1
+fi
+
+printf '%s\n' 'TWO_NODE_VXLAN=pass'

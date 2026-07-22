@@ -1,32 +1,46 @@
-rancher-net
-========
+# PastureStack IPsec/VXLAN Overlay Network
 
-This microservice is responsible for powering the IPSec and VXLAN
-overlay networking in Rancher.
+This repository provides the privileged network data plane used by PastureStack. It contains IPsec and VXLAN overlay processes, connectivity checks, CNI runtime assets, and an audit-only topology planner.
 
-## Building
+PastureStack is an independent community effort to preserve, audit, and modernize the Rancher 1.6 ecosystem. It is not affiliated with or endorsed by Rancher Labs or SUSE.
 
-`make`
+## Runtime image
 
-If you would like to build using a custom repo and tag:
+The Linux AMD64 image is published as:
 
-`REPO=your_docker_repo TAG=dev_or_sth_else make release`
+```text
+ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.26
+```
 
-## Running
+The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
-`./bin/rancher-net`
+Preferred commands inside the image are:
 
-## License
-Copyright (c) 2014-2017 [Rancher Labs, Inc.](http://rancher.com)
+- `start-ipsec.sh` — start the IPsec overlay router.
+- `start-vxlan.sh` — start the VXLAN overlay router.
+- `ipsec-vxlan-connectivity-check` — continuously check peer connectivity.
+- `start-cni-driver.sh` — install the bundled CNI executables on a host.
+- `ipsec-vxlan-overlay-topology` — validate a topology document without changing the host.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Compatibility aliases remain only where the preserved control-plane protocol still requires them. New integrations must use the PastureStack names.
 
-[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+## Build and verification
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+The build is containerized and requires Docker on a Linux AMD64 host:
+
+```sh
+make test
+make validate
+VERSION_OVERRIDE=v0.14.26 make build
+TAG=v0.14.26 make package
+```
+
+The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, installs an exact strongSwan security-update version, and includes the corresponding strongSwan source archives in the image.
+
+The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names before comparing them with configured peer names. This prevents a VICI unique-ID suffix from being misclassified as a missing SA during a rolling replacement.
+
+## Origin and licensing
+
+The official upstream history and original copyright notices are preserved. See [ORIGIN.md](ORIGIN.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [LICENSE](LICENSE) before redistributing this source or its image.
+
+The repository source is licensed under Apache License 2.0. The runtime image also contains separately licensed operating-system packages, including strongSwan under GPL-2.0-or-later with the OpenSSL exception. Those components are not relicensed by PastureStack.

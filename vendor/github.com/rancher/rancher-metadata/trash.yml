@@ -7,5 +7,5 @@ github.com/mitchellh/mapstructure a6ef2f080c66d0a2e94e97cf74f80f772855da63
 github.com/pkg/errors 839d9e913e063e28dfd0e6c7b7512793e0a48be9
 github.com/rancher/event-subscriber ddef5975d2b174e234d7232c811bd55e5e2bf22f
 github.com/rancher/go-rancher f0378de1178a553cfb64666c0281486f593f0f05
-github.com/Sirupsen/logrus 07d998d174c4e2dc90e2f1989a20724220bca1ff
+github.com/sirupsen/logrus v1.9.4
 gopkg.in/yaml.v2 fc96f64724b16cf262e47fb355e6dcea3127beb5 https://github.com/rancher/yaml.git
