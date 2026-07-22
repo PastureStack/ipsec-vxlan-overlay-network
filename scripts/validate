@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+unformatted=$(gofmt -l $(find . -path './vendor' -prune -o -name '*.go' -print))
+if [ -n "$unformatted" ]; then
+    printf 'Go files require formatting:\n%s\n' "$unformatted" >&2
+    exit 1
+fi
+
+go vet ./...
+for script in scripts/* package/*.sh package/update-platform-ca; do
+    [ -f "$script" ] || continue
+    bash -n "$script"
+done
+
+version=${VERSION_OVERRIDE:-v0.14.25}
+first=$(mktemp -d)
+trap 'rm -rf "$first"' EXIT
+VERSION_OVERRIDE="$version" ./scripts/build
+cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology "$first/"
+rm -rf bin
+VERSION_OVERRIDE="$version" ./scripts/build
+cmp "$first/ipsec-vxlan-overlay-network" bin/ipsec-vxlan-overlay-network
+cmp "$first/ipsec-vxlan-overlay-topology" bin/ipsec-vxlan-overlay-topology

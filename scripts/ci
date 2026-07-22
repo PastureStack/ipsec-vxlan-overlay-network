@@ -1,7 +1,8 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-cd $(dirname $0)
+cd "$(dirname "$0")"
+./test
+./validate
 ./build
-./download
 ./package

@@ -8,16 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/store"
 	"github.com/bronze1man/goStrongswanVici"
-	"github.com/rancher/rancher-net/store"
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 )
 
 const (
@@ -25,19 +27,33 @@ const (
 	reqIdStr = "1234"
 	pskFile  = "psk.txt"
 	pidFile  = "/var/run/charon.pid"
+
+	ipsecHealthCheckInterval = 30 * time.Second
+	ipsecInitiateDelay       = 5 * time.Second
+	ipsecInitiateAttempts    = 3
+	ipsecInitiateTimeout     = "12"
+	hostRouteProtocol        = 186
 )
 
 type Overlay struct {
 	sync.Mutex
 
-	keyAttempt  map[string]bool
-	hostAttempt map[string]bool
-	keys        map[string]string
-	hosts       map[string]string
-	templates   Templates
-	db          store.Store
-	psk         string
-	Blacklist   []string
+	keyAttempt    map[string]bool
+	hostAttempt   map[string]bool
+	initiating    map[string]bool
+	keys          map[string]string
+	hosts         map[string]string
+	templates     Templates
+	db            store.Store
+	psk           string
+	netlinkHandle *netlink.Handle
+	Blacklist     []string
+	NetnsPath     string
+
+	// UseHostTunnelSource keeps the metadata identity unchanged while allowing
+	// the tunnel endpoints to be the host agent IP in host-netns XFRM mode.
+	UseHostTunnelSource bool
+	SyncHostRoutes      bool
 }
 
 func NewOverlay(configDir string, db store.Store) *Overlay {
@@ -46,14 +62,22 @@ func NewOverlay(configDir string, db store.Store) *Overlay {
 		templates: Templates{
 			ConfigDir: configDir,
 		},
-		keys:  map[string]string{},
-		hosts: map[string]string{},
+		keys:       map[string]string{},
+		hosts:      map[string]string{},
+		initiating: map[string]bool{},
 	}
+}
+
+func (o *Overlay) localTunnelAddress() string {
+	if o.UseHostTunnelSource {
+		return o.db.LocalHostIpAddress()
+	}
+	return o.db.LocalIpAddress()
 }
 
 func (o *Overlay) Start(launch bool, logFile string) {
 	if launch {
-		go runCharon(logFile)
+		go runCharon(logFile, o.NetnsPath)
 	} else {
 		go o.monitorCharon()
 	}
@@ -62,6 +86,7 @@ func (o *Overlay) Start(launch bool, logFile string) {
 		logrus.Fatalf("Failed to load connections from charon: %v", err)
 	}
 
+	go o.monitorIpsecHealth()
 }
 
 func Test() error {
@@ -146,7 +171,7 @@ func (o *Overlay) monitorCharon() {
 	}
 }
 
-func runCharon(logFile string) {
+func runCharon(logFile string, netnsPath string) {
 	// Ignore error
 	os.Remove("/var/run/charon.vici")
 
@@ -160,7 +185,7 @@ func runCharon(logFile string) {
 		}
 	}
 
-	cmd := exec.Command("charon", args...)
+	cmd := commandInNetns(netnsPath, "charon", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -179,6 +204,14 @@ func runCharon(logFile string) {
 	}
 
 	logrus.Fatalf("charon exited: %v", cmd.Run())
+}
+
+func commandInNetns(netnsPath, name string, args ...string) *exec.Cmd {
+	if netnsPath == "" {
+		return exec.Command(name, args...)
+	}
+	nsArgs := append([]string{"--net=" + netnsPath, name}, args...)
+	return exec.Command("nsenter", nsArgs...)
 }
 
 func handleErr(firstErr, err error, fmt string, args ...interface{}) error {
@@ -204,6 +237,7 @@ func (o *Overlay) configure() error {
 	var firstErr error
 	localHostIp := o.db.LocalHostIpAddress()
 	hosts := map[string]bool{}
+	hostRoutes := map[string]store.Entry{}
 
 	policiesToAdd := map[string]netlink.XfrmPolicy{}
 	existingPolicies, err := o.getRules()
@@ -212,7 +246,7 @@ func (o *Overlay) configure() error {
 	}
 
 	if err := o.loadSharedKey(""); err != nil {
-		firstErr = handleErr(firstErr, err, "Failed to load key for %any: %v", err)
+		firstErr = handleErr(firstErr, err, "Failed to load key for all peers: %v", err)
 	}
 
 	for _, entry := range o.db.Entries() {
@@ -225,6 +259,8 @@ func (o *Overlay) configure() error {
 		if localHostIp == entry.HostIpAddress {
 			continue
 		}
+		ipNoCidr := strings.Split(entry.IpAddress, "/")[0]
+		hostRoutes[ipNoCidr] = entry
 		if !hosts[entry.HostIpAddress] {
 			if err := o.addHost(entry); err == nil {
 				hosts[entry.HostIpAddress] = true
@@ -247,11 +283,287 @@ func (o *Overlay) configure() error {
 	}
 
 	if firstErr == nil {
+		firstErr = o.syncHostRoutes(hostRoutes)
+	}
+
+	if firstErr == nil {
+		firstErr = o.restartForStalePeerIdentities()
+	}
+
+	if firstErr == nil {
 		firstErr = o.removeHosts()
 		// Currently VICI doesn't support unloading keys
 	}
 
+	if firstErr == nil {
+		o.scheduleInitiatesLocked(hosts, ipsecInitiateDelay)
+	}
+
 	return firstErr
+}
+
+func cleanIP(value string) string {
+	value = strings.Trim(value, " \t\r\n'\"")
+	if strings.Contains(value, "/") {
+		value = strings.SplitN(value, "/", 2)[0]
+	}
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
+}
+
+func (o *Overlay) expectedPeerIdentitiesByHost() map[string]map[string]bool {
+	localHostIP := cleanIP(o.db.LocalHostIpAddress())
+	expected := map[string]map[string]bool{}
+	for _, entry := range o.db.PeerEntriesMap() {
+		hostIP := cleanIP(entry.HostIpAddress)
+		if hostIP == "" || hostIP == localHostIP {
+			continue
+		}
+
+		identities := expected[hostIP]
+		if identities == nil {
+			identities = map[string]bool{}
+			expected[hostIP] = identities
+		}
+		identities[hostIP] = true
+		if overlayIP := cleanIP(entry.IpAddress); overlayIP != "" {
+			identities[overlayIP] = true
+		}
+	}
+	return expected
+}
+
+func stalePeerIdentity(childName, remoteID string, expected map[string]map[string]bool) (string, bool) {
+	if !strings.HasPrefix(childName, "child-") {
+		return "", false
+	}
+	hostIP := cleanIP(strings.TrimPrefix(childName, "child-"))
+	remoteIP := cleanIP(remoteID)
+	if hostIP == "" || remoteIP == "" {
+		return "", false
+	}
+	identities, ok := expected[hostIP]
+	if !ok {
+		return "", false
+	}
+	return hostIP, !identities[remoteIP]
+}
+
+func (o *Overlay) restartForStalePeerIdentities() error {
+	expected := o.expectedPeerIdentitiesByHost()
+	if len(expected) == 0 {
+		return nil
+	}
+
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	sas, err := client.ListSas("", "")
+	if err != nil {
+		return err
+	}
+	for _, saMap := range sas {
+		for ikeName, sa := range saMap {
+			for childName, childSA := range sa.Child_sas {
+				if childSA.State != "INSTALLED" {
+					continue
+				}
+				hostIP, stale := stalePeerIdentity(childName, sa.Remote_id, expected)
+				if !stale {
+					continue
+				}
+				logrus.Warnf("Detected stale IPsec peer identity in %s for host %s; restarting charon", ikeName, hostIP)
+				o.restartCharonForRecovery(hostIP)
+				return fmt.Errorf("stale IPsec peer identity for host %s", hostIP)
+			}
+		}
+	}
+	return nil
+}
+
+func (o *Overlay) scheduleInitiatesLocked(hosts map[string]bool, delay time.Duration) {
+	if len(hosts) == 0 {
+		return
+	}
+
+	targets := make([]string, 0, len(hosts))
+	for host := range hosts {
+		if host == "" || o.initiating[host] {
+			continue
+		}
+		o.initiating[host] = true
+		targets = append(targets, host)
+	}
+	sort.Strings(targets)
+
+	if len(targets) == 0 {
+		return
+	}
+
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		for _, host := range targets {
+			o.initiateHostWithRetry(host)
+			o.Lock()
+			delete(o.initiating, host)
+			o.Unlock()
+		}
+	}()
+}
+
+func (o *Overlay) monitorIpsecHealth() {
+	ticker := time.NewTicker(ipsecHealthCheckInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := o.reconcileIpsecHealth(); err != nil {
+			logrus.Warnf("IPsec health reconciliation failed: %v", err)
+		}
+	}
+}
+
+func (o *Overlay) reconcileIpsecHealth() error {
+	localHostIp := o.db.LocalHostIpAddress()
+	expectedHosts := map[string]bool{}
+	for _, entry := range o.db.Entries() {
+		if entry.HostIpAddress == "" || entry.HostIpAddress == localHostIp {
+			continue
+		}
+		expectedHosts[entry.HostIpAddress] = true
+	}
+	if len(expectedHosts) == 0 {
+		return nil
+	}
+
+	installedChildren, err := o.installedChildren()
+	if err != nil {
+		return err
+	}
+
+	missingHosts := map[string]bool{}
+	for host := range expectedHosts {
+		if !installedChildren["child-"+host] {
+			missingHosts[host] = true
+		}
+	}
+	if len(missingHosts) == 0 {
+		return nil
+	}
+
+	logrus.Warnf("Detected %d missing IPsec CHILD_SA(s), scheduling recovery", len(missingHosts))
+	o.Lock()
+	o.scheduleInitiatesLocked(missingHosts, 0)
+	o.Unlock()
+	return nil
+}
+
+func (o *Overlay) initiateHostWithRetry(host string) {
+	child := "child-" + host
+	for i := 0; i < ipsecInitiateAttempts; i++ {
+		if o.childInstalled(child) {
+			logrus.Infof("CHILD_SA %s already installed", child)
+			return
+		}
+
+		o.cleanupConntrack(host)
+		cmd := exec.Command("swanctl", "--initiate", "--child", child, "--timeout", ipsecInitiateTimeout)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			logrus.Infof("Initiated CHILD_SA %s", child)
+			return
+		}
+
+		logrus.Warnf("Failed to initiate CHILD_SA %s attempt %d: %v: %s", child, i+1, err, strings.TrimSpace(string(out)))
+		time.Sleep(time.Duration(i+1) * 5 * time.Second)
+	}
+
+	logrus.Errorf("Failed to recover CHILD_SA %s after %d attempts, restarting charon", child, ipsecInitiateAttempts)
+	o.restartCharonForRecovery(host)
+}
+
+func (o *Overlay) childInstalled(child string) bool {
+	installed, err := o.installedChildren()
+	if err != nil {
+		logrus.Debugf("Unable to list SAs for %s: %v", child, err)
+		return false
+	}
+	return installed[child]
+}
+
+func (o *Overlay) installedChildren() (map[string]bool, error) {
+	client, err := getClient()
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	sas, err := client.ListSas("", "")
+	if err != nil {
+		return nil, err
+	}
+
+	installed := map[string]bool{}
+	for _, saMap := range sas {
+		for _, sa := range saMap {
+			for childName, childSA := range sa.Child_sas {
+				if childSA.State == "INSTALLED" {
+					installed[childName] = true
+				}
+			}
+		}
+	}
+
+	return installed, nil
+}
+
+func (o *Overlay) cleanupConntrack(host string) {
+	host = strings.Split(host, "/")[0]
+	if net.ParseIP(host) == nil {
+		return
+	}
+
+	filters := [][]string{
+		{"-D", "-p", "udp", "-d", host},
+		{"-D", "-p", "udp", "-s", host},
+		{"-D", "-p", "udp", "-r", host},
+		{"-D", "-p", "udp", "-q", host},
+	}
+
+	for _, filter := range filters {
+		out, err := commandInNetns(o.NetnsPath, "conntrack", filter...).CombinedOutput()
+		trimmed := strings.TrimSpace(string(out))
+		if err == nil {
+			if trimmed != "" {
+				logrus.Infof("Cleared IPsec conntrack for host %s: %s", host, trimmed)
+			}
+			continue
+		}
+		if trimmed != "" {
+			logrus.Debugf("Conntrack cleanup for host %s with args %v: %v: %s", host, filter, err, trimmed)
+		} else {
+			logrus.Debugf("Conntrack cleanup for host %s with args %v: %v", host, filter, err)
+		}
+	}
+}
+
+func (o *Overlay) restartCharonForRecovery(host string) {
+	pidBytes, err := ioutil.ReadFile(pidFile)
+	if err != nil {
+		logrus.Errorf("Unable to restart charon for host %s recovery, failed to read %s: %v", host, pidFile, err)
+		return
+	}
+
+	pid := strings.TrimSpace(string(pidBytes))
+	logrus.Warnf("Killing charon PID %s to force IPsec recovery for host %s", pid, host)
+	o.killCharon(pid)
 }
 
 func (o *Overlay) killCharon(pid string) {
@@ -261,14 +573,18 @@ func (o *Overlay) killCharon(pid string) {
 	}
 
 	if err != nil {
-		logrus.Error("Can't kill %s: %v", pid, err)
+		logrus.Errorf("Can't kill %s: %v", pid, err)
 	}
 }
 
 func (o *Overlay) deletePolicies(policies map[string]netlink.XfrmPolicy) error {
 	var lastErr error
+	handle, err := o.xfrmHandle()
+	if err != nil {
+		return err
+	}
 	for _, policy := range policies {
-		if err := netlink.XfrmPolicyDel(&policy); err != nil {
+		if err := handle.XfrmPolicyDel(&policy); err != nil {
 			logrus.Errorf("Failed to delete policy: %+v, %v", policy, err)
 			lastErr = err
 		} else {
@@ -280,8 +596,12 @@ func (o *Overlay) deletePolicies(policies map[string]netlink.XfrmPolicy) error {
 
 func (o *Overlay) addPolicies(policies map[string]netlink.XfrmPolicy) error {
 	var lastErr error
+	handle, err := o.xfrmHandle()
+	if err != nil {
+		return err
+	}
 	for _, policy := range policies {
-		if err := netlink.XfrmPolicyAdd(&policy); err != nil {
+		if err := handle.XfrmPolicyAdd(&policy); err != nil {
 			logrus.Errorf("Failed to add policy: %+v, %v", policy, err)
 			lastErr = err
 		} else {
@@ -293,7 +613,11 @@ func (o *Overlay) addPolicies(policies map[string]netlink.XfrmPolicy) error {
 
 func (o *Overlay) getRules() (map[string]netlink.XfrmPolicy, error) {
 	policies := map[string]netlink.XfrmPolicy{}
-	existing, err := netlink.XfrmPolicyList(0)
+	handle, err := o.xfrmHandle()
+	if err != nil {
+		return nil, err
+	}
+	existing, err := handle.XfrmPolicyList(0)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +630,198 @@ func (o *Overlay) getRules() (map[string]netlink.XfrmPolicy, error) {
 	}
 
 	return policies, nil
+}
+
+func (o *Overlay) xfrmHandle() (*netlink.Handle, error) {
+	if o.netlinkHandle != nil {
+		return o.netlinkHandle, nil
+	}
+	if o.NetnsPath == "" {
+		handle, err := netlink.NewHandle()
+		if err != nil {
+			return nil, err
+		}
+		o.netlinkHandle = handle
+		return o.netlinkHandle, nil
+	}
+	ns, err := netns.GetFromPath(o.NetnsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer ns.Close()
+	handle, err := netlink.NewHandleAt(ns)
+	if err != nil {
+		return nil, err
+	}
+	o.netlinkHandle = handle
+	return o.netlinkHandle, nil
+}
+
+func (o *Overlay) runIP(args ...string) error {
+	return o.runCommand("ip", args...)
+}
+
+func (o *Overlay) runCommand(name string, args ...string) error {
+	cmd := commandInNetns(o.NetnsPath, name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s failed: %v: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func (o *Overlay) ensureOverlayNATBypass() error {
+	chainArgs := []string{"-t", "nat", "-S", "CATTLE_NAT_POSTROUTING"}
+	args := []string{"-t", "nat", "-C", "CATTLE_NAT_POSTROUTING", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
+	insertArgs := []string{"-t", "nat", "-I", "CATTLE_NAT_POSTROUTING", "1", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
+
+	var firstErr error
+	for _, binary := range []string{"iptables", "iptables-nft", "iptables-legacy"} {
+		if _, err := exec.LookPath(binary); err != nil {
+			continue
+		}
+		if err := o.runCommand(binary, chainArgs...); err != nil {
+			logrus.Debugf("Skipping overlay NAT bypass for %s because CATTLE_NAT_POSTROUTING is unavailable: %v", binary, err)
+			continue
+		}
+		if err := o.runCommand(binary, args...); err == nil {
+			continue
+		}
+		if err := o.runCommand(binary, insertArgs...); err != nil {
+			firstErr = handleErr(firstErr, err, "Failed to ensure overlay NAT bypass with %s: %v", binary, err)
+		}
+	}
+
+	return firstErr
+}
+
+func (o *Overlay) ensureOverlayForwardJump() error {
+	chainArgs := []string{"-S", "CATTLE_FORWARD"}
+	createChainArgs := []string{"-N", "CATTLE_FORWARD"}
+	acceptArgs := []string{"-C", "CATTLE_FORWARD", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
+	insertAcceptArgs := []string{"-I", "CATTLE_FORWARD", "1", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
+	jumpArgs := []string{"-C", "FORWARD", "-j", "CATTLE_FORWARD"}
+	insertJumpArgs := []string{"-I", "FORWARD", "1", "-j", "CATTLE_FORWARD"}
+
+	var firstErr error
+	for _, backend := range []struct {
+		binary          string
+		createIfMissing bool
+	}{
+		{binary: "iptables", createIfMissing: true},
+		{binary: "iptables-nft", createIfMissing: true},
+		{binary: "iptables-legacy"},
+	} {
+		binary := backend.binary
+		if _, err := exec.LookPath(binary); err != nil {
+			continue
+		}
+		if err := o.runCommand(binary, chainArgs...); err != nil {
+			if !backend.createIfMissing {
+				logrus.Debugf("Skipping overlay forward jump for %s because CATTLE_FORWARD is unavailable: %v", binary, err)
+				continue
+			}
+			if err := o.runCommand(binary, createChainArgs...); err != nil {
+				firstErr = handleErr(firstErr, err, "Failed to create overlay forward chain with %s: %v", binary, err)
+				continue
+			}
+		}
+		if err := o.runCommand(binary, acceptArgs...); err != nil {
+			if err := o.runCommand(binary, insertAcceptArgs...); err != nil {
+				firstErr = handleErr(firstErr, err, "Failed to ensure overlay forward accept with %s: %v", binary, err)
+			}
+		}
+		if err := o.runCommand(binary, jumpArgs...); err == nil {
+			continue
+		}
+		if err := o.runCommand(binary, insertJumpArgs...); err != nil {
+			firstErr = handleErr(firstErr, err, "Failed to ensure overlay forward jump with %s: %v", binary, err)
+		}
+	}
+
+	return firstErr
+}
+
+func (o *Overlay) routeDevice(remoteHostIP net.IP) (string, error) {
+	handle, err := o.xfrmHandle()
+	if err != nil {
+		return "", err
+	}
+	routes, err := handle.RouteGet(remoteHostIP)
+	if err != nil {
+		return "", err
+	}
+	if len(routes) == 0 || routes[0].LinkIndex == 0 {
+		return "", fmt.Errorf("no route device found for host %s", remoteHostIP)
+	}
+	link, err := handle.LinkByIndex(routes[0].LinkIndex)
+	if err != nil {
+		return "", err
+	}
+	return link.Attrs().Name, nil
+}
+
+func (o *Overlay) syncHostRoutes(desired map[string]store.Entry) error {
+	if !o.SyncHostRoutes {
+		return nil
+	}
+
+	var firstErr error
+	if err := o.ensureOverlayNATBypass(); err != nil {
+		firstErr = handleErr(firstErr, err, "Failed to sync IPsec overlay NAT bypass: %v", err)
+	}
+	if err := o.ensureOverlayForwardJump(); err != nil {
+		firstErr = handleErr(firstErr, err, "Failed to sync IPsec overlay forward jump: %v", err)
+	}
+
+	desiredIPs := map[string]bool{}
+	for ipAddress, entry := range desired {
+		overlayIP := net.ParseIP(ipAddress)
+		remoteHostIP := net.ParseIP(entry.HostIpAddress)
+		if overlayIP == nil || remoteHostIP == nil {
+			firstErr = handleErr(firstErr, fmt.Errorf("invalid route entry ip=%q host=%q", ipAddress, entry.HostIpAddress), "Invalid IPsec host route entry ip=%q host=%q", ipAddress, entry.HostIpAddress)
+			continue
+		}
+		desiredIPs[ipAddress] = true
+
+		dev, err := o.routeDevice(remoteHostIP)
+		if err != nil {
+			firstErr = handleErr(firstErr, err, "Failed to resolve route device for remote host %s: %v", entry.HostIpAddress, err)
+			continue
+		}
+
+		dst := fmt.Sprintf("%s/32", ipAddress)
+		if err := o.runIP("route", "replace", dst, "via", entry.HostIpAddress, "dev", dev, "proto", strconv.Itoa(hostRouteProtocol)); err != nil {
+			firstErr = handleErr(firstErr, err, "Failed to sync IPsec host route %s via %s dev %s: %v", dst, entry.HostIpAddress, dev, err)
+			continue
+		}
+		logrus.Debugf("Synced IPsec host route %s via %s dev %s", dst, entry.HostIpAddress, dev)
+	}
+
+	handle, err := o.xfrmHandle()
+	if err != nil {
+		return handleErr(firstErr, err, "Failed to create netlink handle for stale IPsec route cleanup: %v", err)
+	}
+	routes, err := handle.RouteList(nil, netlink.FAMILY_V4)
+	if err != nil {
+		return handleErr(firstErr, err, "Failed to list host routes for stale IPsec route cleanup: %v", err)
+	}
+	for _, route := range routes {
+		if route.Protocol != hostRouteProtocol || route.Dst == nil || route.Dst.IP == nil {
+			continue
+		}
+		ipAddress := route.Dst.IP.String()
+		if desiredIPs[ipAddress] {
+			continue
+		}
+		if err := o.runIP("route", "del", route.Dst.String(), "proto", strconv.Itoa(hostRouteProtocol)); err != nil {
+			firstErr = handleErr(firstErr, err, "Failed to delete stale IPsec host route %s: %v", route.Dst.String(), err)
+			continue
+		}
+		logrus.Infof("Deleted stale IPsec host route %s", route.Dst.String())
+	}
+
+	return firstErr
 }
 
 func (o *Overlay) removeHosts() error {
@@ -438,6 +954,9 @@ func (o *Overlay) addHostConnection(entry store.Entry) error {
 
 	ikeConf := o.templates.NewIkeConf()
 	ikeConf.Proposals = o.filterAlgos(ikeConf.Proposals)
+	if o.UseHostTunnelSource {
+		ikeConf.LocalAddrs = []string{o.localTunnelAddress()}
+	}
 	ikeConf.RemoteAddrs = []string{entry.HostIpAddress}
 	ikeConf.Children = map[string]goStrongswanVici.ChildSAConf{
 		"child-" + entry.HostIpAddress: childSAConf,
@@ -489,7 +1008,7 @@ func toKey(p *netlink.XfrmPolicy) string {
 }
 
 func (o *Overlay) addRules(entry store.Entry, existingPolicies map[string]netlink.XfrmPolicy, policiesToAdd map[string]netlink.XfrmPolicy) error {
-	localIp := net.ParseIP(o.db.LocalIpAddress())
+	localIp := net.ParseIP(o.localTunnelAddress())
 	remoteHostIp := net.ParseIP(entry.HostIpAddress)
 
 	ip, ipNet, err := net.ParseCIDR(entry.IpAddress)

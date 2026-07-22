@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/gorilla/websocket"
 	"github.com/rancher/go-rancher/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 const MaxWait = time.Duration(time.Second * 10)
