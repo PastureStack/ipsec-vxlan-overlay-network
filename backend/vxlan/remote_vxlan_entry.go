@@ -5,8 +5,8 @@ import (
 	"net"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
-	"github.com/rancher/rancher-net/store"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/store"
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 

@@ -1,30 +1,22 @@
+//go:build integration
+// +build integration
+
 package store
 
 import (
-	"github.com/Sirupsen/logrus"
-	"github.com/rancher/go-rancher-metadata/metadata"
-	rmd "github.com/rancher/rancher-metadata"
 	"reflect"
 	"testing"
+
+	"github.com/rancher/go-rancher-metadata/metadata"
+	"github.com/sirupsen/logrus"
 )
 
 const (
 	mdVersion = "2015-12-19"
 
-	listenPort1       = ":30001"
-	listenReloadPort1 = ":30011"
-	metadataURL1      = "http://localhost" + listenPort1 + "/" + mdVersion
-	answers1          = "./metadata_test_data/answers.host1.yml"
-
-	listenPort2       = ":30002"
-	listenReloadPort2 = ":30012"
-	metadataURL2      = "http://localhost" + listenPort2 + "/" + mdVersion
-	answers2          = "./metadata_test_data/answers.host2.yml"
-
-	listenPort3       = ":30003"
-	listenReloadPort3 = ":30013"
-	metadataURL3      = "http://localhost" + listenPort3 + "/" + mdVersion
-	answers3          = "./metadata_test_data/answers.host3.yml"
+	answers1 = "./metadata_test_data/answers.host1.yml"
+	answers2 = "./metadata_test_data/answers.host2.yml"
+	answers3 = "./metadata_test_data/answers.host3.yml"
 
 	simpleFile1 = "./metadata_test_data/ipsec.host1.json"
 	simpleFile2 = "./metadata_test_data/ipsec.host2.json"
@@ -33,98 +25,78 @@ const (
 
 func init() {
 	logrus.SetLevel(logrus.DebugLevel)
-	runAllTestMetadataServers()
-}
-
-func runAllTestMetadataServers() {
-	runTestMetadataServer2()
-	runTestMetadataServer1()
-	runTestMetadataServer3()
-}
-
-func runTestMetadataServer1() {
-	runTestMetadataServer(answers1, metadataURL1, listenPort1, listenReloadPort1)
-}
-
-func runTestMetadataServer2() {
-	runTestMetadataServer(answers2, metadataURL2, listenPort2, listenReloadPort2)
-}
-
-func runTestMetadataServer3() {
-	runTestMetadataServer(answers3, metadataURL3, listenPort3, listenReloadPort3)
-}
-
-func runTestMetadataServer(answers, url, listenPort, listenReloadPort string) {
-	logrus.Debugf("Starting Test Metadata Server")
-
-	sc := rmd.NewServerConfig(
-		answers,
-		listenPort,
-		listenReloadPort,
-		true,
-	)
-
-	go func() { sc.Start() }()
 }
 
 //func TestGet
 
 func TestMetadataStoreVsSimpleStore(t *testing.T) {
-	logrus.Debugf("MetadataStore Vs SimpleStore")
-	sDB1 := NewSimpleStore(simpleFile1, "")
-	sDB1.Reload()
-
-	clientIP1 := "10.42.231.44"
-	mDB1, _ := NewMetadataStoreWithClientIP(metadataURL1, clientIP1)
-	mDB1.Reload()
-
-	metadataDB1Entries := mDB1.Entries()
-	logrus.Debugf("len(metadataDB1Entries): %v", len(metadataDB1Entries))
-
-	// Start comparing
-
-	if !reflect.DeepEqual(sDB1.Entries(), mDB1.Entries()) {
-		t.Error("expected Entries() to be equal")
+	tests := []struct {
+		name        string
+		answersFile string
+		simpleFile  string
+		clientIP    string
+		localIP     string
+		remoteIP    string
+	}{
+		{"host1", answers1, simpleFile1, "10.42.231.44", "10.42.114.70", "10.42.223.250"},
+		{"host2", answers2, simpleFile2, "10.42.151.49", "10.42.128.187", "10.42.231.44"},
+		{"host3", answers3, simpleFile3, "10.42.119.156", "10.42.223.250", "10.42.151.49"},
 	}
 
-	if !reflect.DeepEqual(sDB1.PeerEntriesMap(), mDB1.PeerEntriesMap()) {
-		t.Error("expected PeerEntriesMap() to be equal")
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := newMetadataFixture(t, test.answersFile)
+			metadataURL := server.URL + "/" + mdVersion
 
-	if !reflect.DeepEqual(sDB1.RemoteEntriesMap(), mDB1.RemoteEntriesMap()) {
-		t.Error("expected RemoteEntriesMap() to be equal")
-	}
+			simpleStore := NewSimpleStore(test.simpleFile, "")
+			if err := simpleStore.Reload(); err != nil {
+				t.Fatalf("reload simple store: %v", err)
+			}
 
-	if !reflect.DeepEqual(sDB1.LocalHostIpAddress(), mDB1.LocalHostIpAddress()) {
-		t.Error("expected LocalHostIpAddress() to be equal")
-	}
+			metadataStore, err := NewMetadataStoreWithClientIP(metadataURL, test.clientIP)
+			if err != nil {
+				t.Fatalf("create metadata store: %v", err)
+			}
+			if err := metadataStore.Reload(); err != nil {
+				t.Fatalf("reload metadata store: %v", err)
+			}
 
-	if !reflect.DeepEqual(sDB1.LocalIpAddress(), mDB1.LocalIpAddress()) {
-		t.Error("expected LocalIpAddress() to be equal")
-	}
-
-	localIP := "10.42.114.70"
-	remoteIP := "10.42.223.250"
-
-	if sDB1.IsRemote(localIP) != mDB1.IsRemote(localIP) {
-		t.Error("expected the lookup result of localIP to be same")
-	}
-
-	if sDB1.IsRemote(remoteIP) != mDB1.IsRemote(remoteIP) {
-		t.Error("expected the lookup result of remoteIP to be same")
+			if !reflect.DeepEqual(simpleStore.Entries(), metadataStore.Entries()) {
+				t.Error("expected Entries() to be equal")
+			}
+			if !reflect.DeepEqual(simpleStore.PeerEntriesMap(), metadataStore.PeerEntriesMap()) {
+				t.Error("expected PeerEntriesMap() to be equal")
+			}
+			if !reflect.DeepEqual(simpleStore.RemoteEntriesMap(), metadataStore.RemoteEntriesMap()) {
+				t.Error("expected RemoteEntriesMap() to be equal")
+			}
+			if simpleStore.LocalHostIpAddress() != metadataStore.LocalHostIpAddress() {
+				t.Error("expected LocalHostIpAddress() to be equal")
+			}
+			if simpleStore.LocalIpAddress() != metadataStore.LocalIpAddress() {
+				t.Error("expected LocalIpAddress() to be equal")
+			}
+			if simpleStore.IsRemote(test.localIP) != metadataStore.IsRemote(test.localIP) {
+				t.Errorf("expected lookup result for local IP %s to be equal", test.localIP)
+			}
+			if simpleStore.IsRemote(test.remoteIP) != metadataStore.IsRemote(test.remoteIP) {
+				t.Errorf("expected lookup result for remote IP %s to be equal", test.remoteIP)
+			}
+		})
 	}
 }
 
 func TestGetHostsMapFromHostsArray(t *testing.T) {
-	mc, err := metadata.NewClientAndWait(metadataURL1)
+	server := newMetadataFixture(t, answers1)
+	mc, err := metadata.NewClientAndWait(server.URL + "/" + mdVersion)
 	logrus.Debugf("mc: %v", mc)
 	if err != nil {
-		logrus.Errorf("couldn't create metadata client")
+		t.Fatalf("couldn't create metadata client: %v", err)
 	}
 
 	hosts, err := mc.GetHosts()
 	if err != nil {
-		t.Error("not expecting error, got :%v", err)
+		t.Errorf("not expecting error, got: %v", err)
 	}
 
 	hostsMap := getHostsMapFromHostsArray(hosts)
@@ -133,6 +105,6 @@ func TestGetHostsMapFromHostsArray(t *testing.T) {
 	actual := hostsMap[testUUID].UUID
 
 	if actual != testUUID {
-		t.Error("expected ce5d0147-8f2d-4e87-86ea-977dd61f83df, got: %v", actual)
+		t.Errorf("expected ce5d0147-8f2d-4e87-86ea-977dd61f83df, got: %v", actual)
 	}
 }

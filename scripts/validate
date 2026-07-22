@@ -1,0 +1,51 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+unformatted=$(gofmt -l $(find . -path './vendor' -prune -o -name '*.go' -print))
+if [ -n "$unformatted" ]; then
+    printf 'Go files require formatting:\n%s\n' "$unformatted" >&2
+    exit 1
+fi
+
+go vet ./...
+./scripts/verify-vendor-lock
+test ! -e trash.conf
+test -f ubuntu-apt.lock
+grep -Fx "UBUNTU_APT_SNAPSHOT='20260808T000000Z'" ubuntu-apt.lock >/dev/null
+grep -Fx "UBUNTU_APT_GCC_VERSION='4:15.2.0-5ubuntu1'" ubuntu-apt.lock >/dev/null
+grep -F 'https://snapshot.ubuntu.com/ubuntu/%s' Dockerfile.dapper package/Dockerfile >/dev/null
+if git grep -n -E \
+    'UBUNTU_MIRROR|http://(archive|security)[.]ubuntu[.]com' \
+    -- . ':(exclude)scripts/validate' ':(exclude)vendor/**'; then
+    echo "A mutable Ubuntu package source remains" >&2
+    exit 1
+fi
+test "$(grep -Ev '^[[:space:]]*(#|$)' vendor.lock | wc -l)" -eq 12
+for removed_tree in \
+    vendor/cloud.google.com/go \
+    vendor/github.com/golang/gddo \
+    vendor/github.com/rancher/rancher-metadata; do
+    test ! -e "$removed_tree"
+done
+if git grep -n -E \
+    'cloud[.]google[.]com/go|github[.]com/golang/gddo|github[.]com/rancher/rancher-metadata' \
+    -- '*.go'; then
+    echo "Removed test-only dependencies returned to the source tree" >&2
+    exit 1
+fi
+for script in scripts/* package/*.sh package/update-platform-ca; do
+    [ -f "$script" ] || continue
+    bash -n "$script"
+done
+
+version=${VERSION_OVERRIDE:-0.14.27}
+first=$(mktemp -d)
+trap 'rm -rf "$first"' EXIT
+VERSION_OVERRIDE="$version" ./scripts/build
+cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology "$first/"
+rm -rf bin
+VERSION_OVERRIDE="$version" ./scripts/build
+cmp "$first/ipsec-vxlan-overlay-network" bin/ipsec-vxlan-overlay-network
+cmp "$first/ipsec-vxlan-overlay-topology" bin/ipsec-vxlan-overlay-topology

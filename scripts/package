@@ -1,22 +1,107 @@
 #!/bin/bash
+set -euo pipefail
 
-ARCH=${ARCH:-"amd64"}
-SUFFIX=""
-[ "${ARCH}" != "amd64" ] && SUFFIX="_${ARCH}"
+source "$(dirname "$0")/version"
+cd "$(dirname "$0")/.."
 
-source $(dirname $0)/version
+cleanup_package_staging() {
+    rm -f package/ubuntu-apt.lock
+}
+trap cleanup_package_staging EXIT
 
-cd $(dirname $0)/../package
+METADATA_CNI_IPAM_URL=${METADATA_CNI_IPAM_URL:-https://github.com/PastureStack/metadata-cni-ipam/releases/download/v0.2.6/metadata-cni-ipam-v0.2.6-linux-amd64}
+METADATA_CNI_IPAM_SHA256=${METADATA_CNI_IPAM_SHA256:-859b4ade1f28687e89c322d22da771813bb0291c29683eec82ffb7f52cf0efa8}
+PER_HOST_SUBNET_URL=${PER_HOST_SUBNET_URL:-https://github.com/PastureStack/per-host-subnet/releases/download/v0.2.7/per-host-subnet-v0.2.7-linux-amd64}
+PER_HOST_SUBNET_SHA256=${PER_HOST_SUBNET_SHA256:-d14debe22ea8a8526c2117c7d9aa9f425f95905c46966700a92e887506879045}
+HOST_LOCAL_CNI_IPAM_URL=${HOST_LOCAL_CNI_IPAM_URL:-https://github.com/PastureStack/host-local-cni-ipam/releases/download/v0.1.3/host-local-cni-ipam-v0.1.3-linux-amd64}
+HOST_LOCAL_CNI_IPAM_SHA256=${HOST_LOCAL_CNI_IPAM_SHA256:-bdd1bdea4886f7394f59bfa1a3f46015845f43fc19ac94c56ff33230bc33070a}
+FLAT_CNI_IPAM_URL=${FLAT_CNI_IPAM_URL:-https://github.com/PastureStack/flat-cni-ipam/releases/download/v0.1.3/flat-cni-ipam-v0.1.3-linux-amd64}
+FLAT_CNI_IPAM_SHA256=${FLAT_CNI_IPAM_SHA256:-cf8ea8efd4dd2094aa5603aa8415cc4915e438ec0182eef3065ef26eaa75b69a}
+MOUNT_PROPAGATION_URL=${MOUNT_PROPAGATION_URL:-https://github.com/PastureStack/mount-propagation/releases/download/v1.0.10/mount-propagation-v1.0.10-linux-amd64}
+MOUNT_PROPAGATION_SHA256=${MOUNT_PROPAGATION_SHA256:-3f005e342a1f35b48b35df21691883d43d55aaad20239eea8fbbf3146c44c9b0}
 
-TAG=${TAG:-${VERSION}${SUFFIX}}
-REPO=${REPO:-rancher}
+TAG=${TAG:-${VERSION}}
+REPO=${REPO:-ghcr.io/${IMAGE_NAMESPACE:-pasturestack}}
+IMAGE_NAME=${IMAGE_NAME:-ipsec-vxlan-overlay-network}
+IMAGE_REVISION=${IMAGE_REVISION:-$(git rev-parse --verify HEAD 2>/dev/null || true)}
+IMAGE_REVISION=${IMAGE_REVISION:-unknown}
 
-if $(echo ${TAG} | grep -q dirty); then
-    TAG=dev
+if echo "$TAG" | grep -q dirty; then
+    echo "Refusing to package a dirty version: $TAG" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$IMAGE_REVISION" | grep -Eq '^([0-9a-f]{40}|unknown)$'; then
+    echo "Invalid image revision: $IMAGE_REVISION" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$TAG" | grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+$'; then
+    echo "Image tag must be numeric SemVer: $TAG" >&2
+    exit 1
+fi
+if [ "$IMAGE_REVISION" = unknown ]; then
+    echo "A 40-character IMAGE_REVISION is required for a versioned image" >&2
+    exit 1
 fi
 
-cp ../bin/rancher-net .
-cp ../strongswan/* strongswan.tar.gz
-docker build -t ${REPO}/net:${TAG} .
+mkdir -p dist/dependencies
 
-echo Built ${REPO}/net:${TAG}
+stage_binary() {
+    local destination=$1
+    local local_binary=$2
+    local url=$3
+    local sha256=$4
+    local cache="dist/dependencies/${destination}"
+
+    rm -f "$cache.tmp"
+    if [ -n "$local_binary" ]; then
+        if [ ! -x "$local_binary" ]; then
+            echo "Local dependency is not executable: $local_binary" >&2
+            exit 1
+        fi
+        cp "$local_binary" "$cache"
+    else
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            -o "$cache.tmp" "$url"
+        mv "$cache.tmp" "$cache"
+    fi
+    echo "$sha256  $cache" | sha256sum -c -
+    install -m 0755 "$cache" "package/$destination"
+}
+
+install -m 0755 bin/ipsec-vxlan-overlay-network package/ipsec-vxlan-overlay-network
+install -m 0755 bin/ipsec-vxlan-overlay-topology package/ipsec-vxlan-overlay-topology
+stage_binary metadata-cni-ipam "${METADATA_CNI_IPAM_BINARY:-}" "$METADATA_CNI_IPAM_URL" "$METADATA_CNI_IPAM_SHA256"
+stage_binary per-host-subnet "${PER_HOST_SUBNET_BINARY:-}" "$PER_HOST_SUBNET_URL" "$PER_HOST_SUBNET_SHA256"
+stage_binary host-local-cni-ipam "${HOST_LOCAL_CNI_IPAM_BINARY:-}" "$HOST_LOCAL_CNI_IPAM_URL" "$HOST_LOCAL_CNI_IPAM_SHA256"
+stage_binary flat-cni-ipam "${FLAT_CNI_IPAM_BINARY:-}" "$FLAT_CNI_IPAM_URL" "$FLAT_CNI_IPAM_SHA256"
+stage_binary mount-propagation "${MOUNT_PROPAGATION_BINARY:-}" "$MOUNT_PROPAGATION_URL" "$MOUNT_PROPAGATION_SHA256"
+
+rm -rf package/licenses
+mkdir -p package/licenses/source package/licenses/vendor
+install -m 0644 ubuntu-apt.lock package/ubuntu-apt.lock
+install -m 0644 LICENSE package/licenses/source/LICENSE
+for license in LICENSES/*; do
+    install -m 0644 "$license" "package/licenses/source/$(basename "$license")"
+done
+for document in COMPATIBILITY.md ORIGIN.md SECURITY.md THIRD_PARTY_NOTICES.md; do
+    install -m 0644 "$document" "package/licenses/source/$document"
+done
+while IFS= read -r -d '' license; do
+    relative=${license#vendor/}
+    mkdir -p "package/licenses/vendor/$(dirname "$relative")"
+    install -m 0644 "$license" "package/licenses/vendor/$relative"
+done < <(find vendor -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'PATENTS*' \) -print0)
+
+docker build \
+    --pull \
+    --platform linux/amd64 \
+    --provenance=false \
+    --network "${DOCKER_BUILD_NETWORK:-host}" \
+    --build-arg IMAGE_VERSION="$TAG" \
+    --build-arg IMAGE_REVISION="$IMAGE_REVISION" \
+    -t "$REPO/$IMAGE_NAME:$TAG" \
+    package
+
+mkdir -p dist
+printf '%s\n' "$REPO/$IMAGE_NAME:$TAG" > dist/images
+echo "Built $REPO/$IMAGE_NAME:$TAG"

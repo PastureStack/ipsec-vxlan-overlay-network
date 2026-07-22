@@ -2,13 +2,14 @@ package vxlan
 
 import (
 	"fmt"
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/store"
 	"github.com/rancher/go-rancher-metadata/metadata"
-	"github.com/rancher/rancher-net/store"
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"math/rand"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func randSeq(n int) string {
 // for testing purposes
 func NewTestOverlay(v *vxlanIntfInfo, db store.Store) (*Overlay, error) {
 	logrus.Debugf("vxlan: creating new overlay: %+v", v)
-	mc, err := metadata.NewClientAndWait(metadataURL)
+	mc, err := metadata.NewClientAndWait(store.DefaultMetadataURL)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +38,21 @@ func NewTestOverlay(v *vxlanIntfInfo, db store.Store) (*Overlay, error) {
 		db: db,
 		v:  v,
 	}, nil
+}
+
+func newNetlinkTestOverlay(v *vxlanIntfInfo) *Overlay {
+	return &Overlay{v: v}
+}
+
+func skipIfNetlinkUnavailable(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "permission denied") || strings.Contains(msg, "operation not supported") || strings.Contains(msg, "address family not supported") {
+		t.Skipf("requires privileged netlink/VXLAN support: %v", err)
+	}
 }
 
 func getRandomVxlanInterface() *vxlanIntfInfo {
@@ -71,44 +87,46 @@ func init() {
 
 func TestCreateDeleteVTEP(t *testing.T) {
 	vx := getRandomVxlanInterface()
-	o, _ := NewTestOverlay(vx, nil)
+	o := newNetlinkTestOverlay(vx)
 
 	err := o.checkAndCreateVTEP()
+	skipIfNetlinkUnavailable(t, err)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = o.checkAndDeleteVTEP()
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 }
 
 func TestAddDeleteVxlanStaticRoute(t *testing.T) {
 	vx := getRandomVxlanInterface()
-	o, _ := NewTestOverlay(vx, nil)
+	o := newNetlinkTestOverlay(vx)
 
 	ip := net.ParseIP("1.1.1.1")
 	mac, _ := net.ParseMAC("00:00:11:11:11:11")
 
 	err := o.checkAndCreateVTEP()
+	skipIfNetlinkUnavailable(t, err)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = addVxlanForwardingEntry(vx.name, mac, ip)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = deleteVxlanForwardingEntry(vx.name, mac, ip)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = o.checkAndDeleteVTEP()
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 }
@@ -120,7 +138,7 @@ func TestGetMACAddressForVxlanIP(t *testing.T) {
 
 	actual, _ := getMACAddressForVxlanIP(macprefix, net.ParseIP(inputVxlanIP))
 	if actual.String() != expected {
-		t.Error("expected: %v, actual: %v", expected, actual)
+		t.Errorf("expected: %v, actual: %v", expected, actual)
 	}
 }
 
@@ -138,8 +156,9 @@ func TestAddDelRoute(t *testing.T) {
 	}
 
 	err := createVxlanInterface(v)
+	skipIfNetlinkUnavailable(t, err)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	ip, _ := netlink.ParseIPNet("10.1.1.1/32")
@@ -149,48 +168,49 @@ func TestAddDelRoute(t *testing.T) {
 
 	err = addRoute(ip, via1, "")
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = delRoute(ip, via1, "")
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = addRoute(ip, nil, v.name)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = delRoute(ip, nil, v.name)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = deleteVxlanInterface(intfName)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 }
 
 func TestAddDelARPEntry(t *testing.T) {
 	vx := getRandomVxlanInterface()
-	o, _ := NewTestOverlay(vx, nil)
+	o := newNetlinkTestOverlay(vx)
 
-	o.checkAndCreateVTEP()
+	err := o.checkAndCreateVTEP()
+	skipIfNetlinkUnavailable(t, err)
 
 	ip := net.ParseIP("1.1.1.1")
 	mac, _ := net.ParseMAC("00:00:11:11:11:11")
 
-	err := addARPEntry(vx.name, ip, mac)
+	err = addARPEntry(vx.name, ip, mac)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = delARPEntry(vx.name, ip, mac)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	o.checkAndDeleteVTEP()
@@ -274,8 +294,9 @@ func TestPeerVxlanEntryOperations(t *testing.T) {
 	}
 
 	err = createVxlanInterface(vx)
+	skipIfNetlinkUnavailable(t, err)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 	e := store.Entry{
 		IpAddress:     "10.42.1.1/16",
@@ -302,7 +323,7 @@ func TestPeerVxlanEntryOperations(t *testing.T) {
 
 	err = deleteVxlanInterface(intfName)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 }
@@ -312,8 +333,9 @@ func TestRemoteVxlanEntryOperations(t *testing.T) {
 
 	vx := getRandomVxlanInterface()
 	err = createVxlanInterface(vx)
+	skipIfNetlinkUnavailable(t, err)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 	db := store.NewSimpleStore(waitForFile("entries.json"), "")
 	db.Reload()
@@ -341,27 +363,35 @@ func TestRemoteVxlanEntryOperations(t *testing.T) {
 
 	err = v.add()
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	v.via = nil
 	err = v.del()
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 
 	err = deleteVxlanInterface(vx.name)
 	if err != nil {
-		t.Error("No error expected, got: %v", err)
+		t.Errorf("No error expected, got: %v", err)
 	}
 }
 
 func TestVxlanFunctionality(t *testing.T) {
-	db, _ := store.NewMetadataStore("")
+	db, err := store.NewMetadataStore("")
+	if err != nil || db == nil {
+		t.Skipf("requires the platform metadata service: %v", err)
+	}
 	logrus.Infof("db: %+v", db)
-	db.Reload()
+	if err := db.Reload(); err != nil {
+		t.Skipf("requires usable platform metadata: %v", err)
+	}
 
-	o, _ := NewOverlay("", db)
+	o, err := NewOverlay("", db)
+	if err != nil || o == nil {
+		t.Skipf("requires a metadata-backed VXLAN overlay: %v", err)
+	}
 	logrus.Infof("o=%+v", o)
 	o.configure()
 	o.Reload()
@@ -370,11 +400,22 @@ func TestVxlanFunctionality(t *testing.T) {
 
 func TestGetMyVtepInfo(t *testing.T) {
 	vx := getRandomVxlanInterface()
-	db, _ := store.NewMetadataStore("")
-	db.Reload()
-	o, _ := NewTestOverlay(vx, db)
+	db, err := store.NewMetadataStore("")
+	if err != nil || db == nil {
+		t.Skipf("requires the platform metadata service: %v", err)
+	}
+	if err := db.Reload(); err != nil {
+		t.Skipf("requires usable platform metadata: %v", err)
+	}
+	o, err := NewTestOverlay(vx, db)
+	if err != nil || o == nil {
+		t.Skipf("requires a metadata-backed VXLAN overlay: %v", err)
+	}
 
-	mac, _ := o.GetMyVTEPInfo()
+	mac, err := o.GetMyVTEPInfo()
+	if err != nil {
+		t.Fatalf("unexpected VTEP info error: %v", err)
+	}
 
 	if mac.String() == "" {
 		t.Error("Expecting a MAC address")

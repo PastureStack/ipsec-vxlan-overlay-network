@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+
+preferred_ca=/var/lib/pasturestack/etc/ssl/ca.crt
+legacy_ca=/var/lib/rancher/etc/ssl/ca.crt
+destination=/usr/local/share/ca-certificates/pasturestack/platform-ca.crt
+
+if [ -f "$preferred_ca" ]; then
+    source_ca=$preferred_ca
+elif [ -f "$legacy_ca" ]; then
+    source_ca=$legacy_ca
+else
+    exit 0
+fi
+
+mkdir -p "$(dirname "$destination")"
+if [ ! -f "$destination" ] || ! cmp -s "$source_ca" "$destination"; then
+    install -m 0644 "$source_ca" "$destination"
+    update-ca-certificates
+fi

@@ -1,7 +1,7 @@
 package vxlan
 
 import (
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"net"
 )

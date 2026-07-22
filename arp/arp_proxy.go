@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"net"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/store"
 	"github.com/mdlayher/arp"
 	"github.com/mdlayher/ethernet"
-	"github.com/rancher/rancher-net/store"
+	"github.com/sirupsen/logrus"
 )
 
 func ListenAndServe(db store.Store, ifaceName string) error {

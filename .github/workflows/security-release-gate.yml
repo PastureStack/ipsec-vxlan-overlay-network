@@ -1,0 +1,356 @@
+name: Security release gate
+
+on:
+  push:
+    branches:
+      - 'verification/ipsec-vxlan-overlay-network-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ipsec-vxlan-overlay-network-security-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CANDIDATE_VERSION: 0.14.27
+      VERSION_OVERRIDE: 0.14.27
+      TAG: 0.14.27
+      IMAGE_REVISION: ${{ github.sha }}
+      REPO: local/pasturestack
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.27
+      GO_VERSION: 1.26.5
+      GO_LINUX_AMD64_SHA256: 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+      TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+      TRIVY_CACHE: /tmp/pasturestack-ipsec-vxlan-overlay-trivy-cache
+      GO111MODULE: 'off'
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out complete reviewed history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify history, version, privacy, and locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-list --count 721d6ddb2f0a4faa11c9a50e75ed28e1f7cad317..HEAD)" -eq 1
+          test "$(git rev-list --count --merges 721d6ddb2f0a4faa11c9a50e75ed28e1f7cad317..HEAD)" -eq 0
+          source scripts/version
+          test "$VERSION" = "$CANDIDATE_VERSION"
+          bash scripts/verify-vendor-lock
+          private_pattern=$(printf '%s|%s|%s' 'chen''21019' '10[.]0[.]0[.]''125' 'C:\\''Users\\')
+          if git grep -n -E "$private_pattern" -- .; then
+            echo 'Private operator data is present in the public source tree.' >&2
+            exit 1
+          fi
+          mkdir -p evidence
+          git ls-tree -r --name-only HEAD | LC_ALL=C sort > evidence/source-tree.txt
+          sha256sum vendor.lock ubuntu-apt.lock Dockerfile.dapper package/Dockerfile \
+            security/dapper-linux-libc-dev.cves > evidence/source-locks.sha256
+
+      - name: Install verified Go toolchain and create GOPATH view
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="go${GO_VERSION}.linux-amd64.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            --output "/tmp/${archive}" "https://go.dev/dl/${archive}"
+          printf '%s  %s\n' "$GO_LINUX_AMD64_SHA256" "/tmp/${archive}" | sha256sum -c -
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf "/tmp/${archive}"
+          candidate_gopath="$RUNNER_TEMP/ipsec-vxlan-overlay-network-gopath"
+          printf 'GOPATH=%s\n' "$candidate_gopath" >> "$GITHUB_ENV"
+          printf '/usr/local/go/bin\n' >> "$GITHUB_PATH"
+          mkdir -p "$candidate_gopath/src/github.com/PastureStack"
+          ln -s "$GITHUB_WORKSPACE" "$candidate_gopath/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          /usr/local/go/bin/go version | grep -Fx "go version go${GO_VERSION} linux/amd64"
+
+      - name: Validate, race-test, integrate metadata, and build reproducibly
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          export PATH="/usr/local/go/bin:$PATH"
+          ./scripts/validate
+          ./scripts/test
+          ./scripts/build
+          cp bin/ipsec-vxlan-overlay-network evidence/ipsec-vxlan-overlay-network.first
+          cp bin/ipsec-vxlan-overlay-topology evidence/ipsec-vxlan-overlay-topology.first
+          rm -rf bin
+          ./scripts/build
+          cmp evidence/ipsec-vxlan-overlay-network.first bin/ipsec-vxlan-overlay-network
+          cmp evidence/ipsec-vxlan-overlay-topology.first bin/ipsec-vxlan-overlay-topology
+          bin/ipsec-vxlan-overlay-network --version 2>&1 | grep -F "$CANDIDATE_VERSION"
+          bin/ipsec-vxlan-overlay-topology --version 2>&1 | grep -F "$CANDIDATE_VERSION"
+          go version -m bin/ipsec-vxlan-overlay-network > evidence/product-go-version.txt
+          sha256sum bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology > evidence/product.sha256
+
+      - name: Package the candidate runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          export PATH="/usr/local/go/bin:$PATH"
+          ./scripts/package
+          test "$(cat dist/images)" = "$IMAGE"
+          test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$CANDIDATE_VERSION"
+          test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
+
+      - name: Record exact build and runtime package inventories
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          dapper_image="pasturestack-ipsec-overlay-dapper:${GITHUB_SHA}"
+          docker build --pull --build-arg DAPPER_HOST_ARCH=amd64 \
+            --tag "$dapper_image" --file Dockerfile.dapper .
+          docker run --rm --entrypoint cat "$dapper_image" \
+            /licenses/IPSEC-VXLAN-OVERLAY-DAPPER-UBUNTU-APT-PACKAGES.tsv \
+            > evidence/dapper-ubuntu-apt-packages.tsv
+          docker run --rm --entrypoint cat "$IMAGE" \
+            /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv \
+            > evidence/runtime-ubuntu-apt-packages.tsv
+          docker run --rm --entrypoint docker "$dapper_image" --version \
+            | grep -F 'Docker version 29.6.2' \
+            > evidence/docker-cli-version.txt
+          printf 'DAPPER_IMAGE=%s\n' "$dapper_image" >> "$GITHUB_ENV"
+
+      - name: Exercise real two-node VXLAN and IPsec data paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          IMAGE="$IMAGE" ./scripts/integration-two-node-vxlan
+          IMAGE="$IMAGE" ./scripts/integration-two-node-ipsec
+
+      - name: Run reachable Go vulnerability analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          export PATH="/usr/local/go/bin:$PATH"
+          tool_dir="$RUNNER_TEMP/security-tools"
+          mkdir -p "$tool_dir"
+          GO111MODULE=on GOBIN="$tool_dir" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology; do
+            "$tool_dir/govulncheck" -mode=binary -json "bin/$binary" \
+              > "evidence/govulncheck-${binary}.json"
+            if jq -e 'select(.finding != null)' "evidence/govulncheck-${binary}.json" >/dev/null; then
+              echo "A reachable Go vulnerability remains in $binary" >&2
+              exit 1
+            fi
+          done
+
+      - name: Scan source, product binaries, and runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          mkdir -p "$TRIVY_CACHE"
+          source_tree=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-source.XXXXXX")
+          product_tree=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-product.XXXXXX")
+          git archive HEAD | tar -x -C "$source_tree"
+          cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology "$product_tree/"
+          docker pull "$TRIVY_IMAGE"
+          docker run --rm -v "$TRIVY_CACHE:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --download-db-only
+          run_fs_scan() {
+            local source=$1 destination=$2
+            docker run --rm --network none \
+              -v "$TRIVY_CACHE:/root/.cache/trivy" \
+              -v "$source:/scan:ro" -v "$PWD/evidence:/evidence" \
+              "$TRIVY_IMAGE" fs --cache-dir /root/.cache/trivy \
+              --skip-db-update --offline-scan --scanners vuln,secret \
+              --severity CRITICAL,HIGH --format json \
+              --output "/evidence/${destination}" /scan
+          }
+          run_fs_scan "$source_tree" source-security.json
+          run_fs_scan "$product_tree" product-security.json
+          docker run --rm --network none \
+            -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$source_tree:/scan:ro" \
+            -v "$PWD/evidence:/evidence" "$TRIVY_IMAGE" fs \
+            --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
+            --format cyclonedx --output /evidence/source-sbom.cdx.json /scan
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$PWD:/work" -w /work \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy \
+            --skip-db-update --offline-scan --scanners vuln,secret \
+            --severity CRITICAL,HIGH --format json \
+            --output /work/evidence/runtime-security.json "$IMAGE"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$PWD:/work" -w /work \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy \
+            --skip-db-update --offline-scan --format cyclonedx \
+            --output /work/evidence/runtime-sbom.cdx.json "$IMAGE"
+          dapper_rootfs=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-dapper.XXXXXX")
+          dapper_container=$(docker create "$DAPPER_IMAGE")
+          docker export "$dapper_container" | tar --no-same-owner --no-same-permissions -x -C "$dapper_rootfs"
+          docker rm "$dapper_container"
+          docker run --rm --network none \
+            -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$dapper_rootfs:/scan:ro" \
+            -v "$PWD/evidence:/evidence" "$TRIVY_IMAGE" rootfs \
+            --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
+            --scanners vuln,secret --severity CRITICAL,HIGH --format json \
+            --output /evidence/dapper-security.json /scan
+          docker run --rm --network none \
+            -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$dapper_rootfs:/scan:ro" \
+            -v "$PWD/evidence:/evidence" "$TRIVY_IMAGE" rootfs \
+            --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
+            --format cyclonedx --output /evidence/dapper-sbom.cdx.json /scan
+
+          dapper_purl='pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04'
+          jq -r '
+            .Results[]?.Vulnerabilities[]?
+            | select(.Severity == "CRITICAL" or .Severity == "HIGH")
+            | [.VulnerabilityID, .PkgIdentifier.PURL]
+            | @tsv
+          ' evidence/dapper-security.json | LC_ALL=C sort -u \
+            > evidence/dapper-critical-high.tsv
+          awk -v purl="$dapper_purl" 'NF {print $0 "\t" purl}' \
+            security/dapper-linux-libc-dev.cves | LC_ALL=C sort -u \
+            > evidence/dapper-reviewed.tsv
+          test -s evidence/dapper-critical-high.tsv
+          test "$(wc -l < evidence/dapper-critical-high.tsv)" -eq \
+            "$(wc -l < security/dapper-linux-libc-dev.cves)"
+          diff -u evidence/dapper-reviewed.tsv evidence/dapper-critical-high.tsv
+          test "$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' evidence/dapper-security.json)" -eq \
+            "$(wc -l < evidence/dapper-critical-high.tsv)"
+          grep -Fx $'linux-libc-dev:amd64\t7.0.0-29.29' \
+            evidence/dapper-ubuntu-apt-packages.tsv >/dev/null
+          if grep -Eq '^linux-(image|modules)([-:]|[[:space:]])' \
+            evidence/dapper-ubuntu-apt-packages.tsv; then
+            echo 'Unexpected Linux kernel runtime package in the disposable builder' >&2
+            exit 1
+          fi
+          if grep -Eq '^linux-libc-dev([:]|[[:space:]])' \
+            evidence/runtime-ubuntu-apt-packages.tsv; then
+            echo 'linux-libc-dev must not be shipped in the runtime image' >&2
+            exit 1
+          fi
+          test -z "$(find "$dapper_rootfs" -type f \
+            \( -path '*/boot/vmlinuz*' -o -path '*/lib/modules/*' -o -path '*/usr/lib/modules/*' \) \
+            -print -quit)"
+          jq -Rn \
+            --arg purl "$dapper_purl" \
+            --arg timestamp "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg impact 'This build-only package contains Linux user-space API headers, not the vulnerable kernel implementation. It is used only by the disposable compile and race-test environment and is not copied into the product runtime image.' \
+            '[inputs | select(length > 0) | {
+              vulnerability:{name:.},
+              products:[{"@id":$purl}],
+              status:"not_affected",
+              justification:"vulnerable_code_not_present",
+              impact_statement:$impact
+            }] | {
+              "@context":"https://openvex.dev/ns/v0.2.0",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.27",
+              author:"PastureStack Security",
+              timestamp:$timestamp,
+              version:1,
+              statements:.
+            }' security/dapper-linux-libc-dev.cves \
+            > evidence/dapper.openvex.json
+          test "$(jq '.statements | length' evidence/dapper.openvex.json)" -eq \
+            "$(wc -l < evidence/dapper-reviewed.tsv)"
+          rm -rf -- "$source_tree" "$product_tree" "$dapper_rootfs"
+
+      - name: Enforce zero Critical, High, or secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          : > evidence/security-summary.txt
+          for scope in source product runtime; do
+            report="evidence/${scope}-security.json"
+            secrets=$(jq '[.Results[]?.Secrets[]?] | length' "$report")
+            critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$report")
+            high=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$report")
+            printf '%s_secrets=%s\n%s_critical=%s\n%s_high=%s\n' \
+              "$scope" "$secrets" "$scope" "$critical" "$scope" "$high" \
+              | tee -a evidence/security-summary.txt
+            test "$secrets" -eq 0
+            test "$critical" -eq 0
+            test "$high" -eq 0
+          done
+          dapper_secrets=$(jq '[.Results[]?.Secrets[]?] | length' evidence/dapper-security.json)
+          dapper_raw_critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' evidence/dapper-security.json)
+          dapper_raw_high=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' evidence/dapper-security.json)
+          dapper_reviewed_critical=$(jq -n \
+            --rawfile pairs evidence/dapper-reviewed.tsv \
+            --slurpfile report evidence/dapper-security.json \
+            '[($pairs | split("\n")[] | select(length > 0) | split("\t")[0])] as $ids
+            | [$report[0].Results[]?.Vulnerabilities[]?
+               | select(.Severity == "CRITICAL" and (.VulnerabilityID as $id | $ids | index($id)))]
+            | length')
+          dapper_reviewed_high=$(jq -n \
+            --rawfile pairs evidence/dapper-reviewed.tsv \
+            --slurpfile report evidence/dapper-security.json \
+            '[($pairs | split("\n")[] | select(length > 0) | split("\t")[0])] as $ids
+            | [$report[0].Results[]?.Vulnerabilities[]?
+               | select(.Severity == "HIGH" and (.VulnerabilityID as $id | $ids | index($id)))]
+            | length')
+          dapper_applicable_critical=$((dapper_raw_critical - dapper_reviewed_critical))
+          dapper_applicable_high=$((dapper_raw_high - dapper_reviewed_high))
+          jq -n \
+            --arg method 'exact-id-purl-set-match' \
+            --arg source 'evidence/dapper-security.json' \
+            --arg vex 'evidence/dapper.openvex.json' \
+            --argjson raw_critical "$dapper_raw_critical" \
+            --argjson raw_high "$dapper_raw_high" \
+            --argjson reviewed_critical "$dapper_reviewed_critical" \
+            --argjson reviewed_high "$dapper_reviewed_high" \
+            --argjson applicable_critical "$dapper_applicable_critical" \
+            --argjson applicable_high "$dapper_applicable_high" \
+            '{method:$method,source_report:$source,vex_document:$vex,
+              raw:{critical:$raw_critical,high:$raw_high},
+              reviewed_not_affected:{critical:$reviewed_critical,high:$reviewed_high},
+              applicable:{critical:$applicable_critical,high:$applicable_high}}' \
+            > evidence/dapper-openvex-review.json
+          printf 'dapper_secrets=%s\ndapper_raw_critical=%s\ndapper_raw_high=%s\ndapper_applicable_critical=%s\ndapper_applicable_high=%s\n' \
+            "$dapper_secrets" "$dapper_raw_critical" "$dapper_raw_high" \
+            "$dapper_applicable_critical" "$dapper_applicable_high" \
+            | tee -a evidence/security-summary.txt
+          test "$dapper_secrets" -eq 0
+          test "$dapper_applicable_critical" -eq 0
+          test "$dapper_applicable_high" -eq 0
+
+      - name: Record and upload short-lived evidence
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          repository="$GITHUB_WORKSPACE"
+          mkdir -p "$repository/evidence"
+          cd "$repository"
+          find evidence -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | \
+            xargs -0 -r sha256sum > evidence/SHA256SUMS
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ipsec-vxlan-overlay-network-security-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+          include-hidden-files: false
+
+      - name: Remove verification-only resources
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          docker image rm -f "$IMAGE" "${DAPPER_IMAGE:-}" "$TRIVY_IMAGE" >/dev/null 2>&1
+          docker builder prune --all --force >/dev/null 2>&1
+          sudo rm -rf -- "$TRIVY_CACHE" "$GOPATH" "$RUNNER_TEMP/security-tools" \
+            "$GITHUB_WORKSPACE/bin" "$GITHUB_WORKSPACE/dist" "$GITHUB_WORKSPACE/evidence"

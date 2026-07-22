@@ -3,18 +3,17 @@ package vxlan
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/store"
 	"github.com/rancher/go-rancher-metadata/metadata"
-	"github.com/rancher/rancher-net/store"
+	"github.com/sirupsen/logrus"
 )
 
 const (
-	metadataURL = "http://rancher-metadata/2015-12-19"
-
 	vxlanInterfaceName = "vtep1042"
 	vxlanVni           = 1042
 	vxlanMACRange      = "0E:00:00:00:00:00"
@@ -55,7 +54,7 @@ func NewOverlay(configDir string, db store.Store) (*Overlay, error) {
 	o.v, err = o.getDefaultVxlanInterfaceInfo()
 	if err != nil {
 		logrus.Errorf("vxlan: couldn't get default vxlan inteface info: %v", err)
-		return nil, nil
+		return nil, err
 	}
 
 	return o, nil
@@ -184,7 +183,7 @@ func buildPeersMapping(entries map[string]store.Entry) map[string]net.IP {
 }
 
 // handlePeerEntries takes care of installing the ARP and bridge entry
-// Peer = Container running the rancher-net/ipsec/vxlan
+// Peer is a container participating in the overlay network.
 func (o *Overlay) handlePeerEntries(diff entriesDiff) {
 	logrus.Debugf("before handlePeerEntries o.prevPeerEntries: %+v", o.prevPeerEntries)
 
@@ -260,28 +259,6 @@ func (o *Overlay) handlePeerEntries(diff entriesDiff) {
 
 		logrus.Debugf("Not processing update of e: %+v", e)
 		o.prevPeerEntries[ipNoCidr] = prevPeerEntries[ipNoCidr]
-		continue
-
-		peer, err := newPeerVxlanEntry(o.v.name, e)
-		if err != nil {
-			logrus.Errorf("Error creating new peer entry: %v, keep prev entry", err)
-			o.prevPeerEntries[ipNoCidr] = prevPeerEntries[ipNoCidr]
-			continue
-		}
-		if peer == nil {
-			logrus.Errorf("Got nil for e: %v, keep prev entry", e)
-			o.prevPeerEntries[ipNoCidr] = prevPeerEntries[ipNoCidr]
-			continue
-		}
-		logrus.Debugf("vxlan: Updating peer: %+v", *peer)
-		err = peer.upd()
-		if err != nil {
-			logrus.Errorf("vxlan: error adding peer entry: %v, keep prev entry", err)
-			// If there was an error updating, keep the old entry
-			o.prevPeerEntries[ipNoCidr] = prevPeerEntries[ipNoCidr]
-		} else {
-			o.prevPeerEntries[ipNoCidr] = e
-		}
 	}
 
 	logrus.Debugf("after handlePeerEntries: o.prevPeerEntries: %+v", o.prevPeerEntries)
@@ -354,29 +331,6 @@ func (o *Overlay) handleNonPeerRemoteEntries(diff entriesDiff, peersMapping map[
 
 		logrus.Debugf("Not processing update of e: %+v", e)
 		o.prevNonPeerRemoteEntries[ipNoCidr] = prevNonPeerRemoteEntries[ipNoCidr]
-		continue
-
-		rEntry, err := newRemoteVxlanEntry(o.v.name, e, peersMapping)
-		if err != nil {
-			logrus.Errorf("Error creating new remote entry: %v", err)
-			o.prevNonPeerRemoteEntries[ipNoCidr] = prevNonPeerRemoteEntries[ipNoCidr]
-			continue
-		}
-		if rEntry == nil {
-			logrus.Errorf("Got nil for e: %v", e)
-			o.prevNonPeerRemoteEntries[ipNoCidr] = prevNonPeerRemoteEntries[ipNoCidr]
-			continue
-		}
-
-		logrus.Debugf("vxlan: Updating remote entry: %+v", *rEntry)
-		err = rEntry.upd()
-		if err != nil {
-			logrus.Errorf("vxlan: error updating remote entry: %v", err)
-			// If there was an error updating, keep the old entry
-			o.prevNonPeerRemoteEntries[ipNoCidr] = prevNonPeerRemoteEntries[ipNoCidr]
-		} else {
-			o.prevNonPeerRemoteEntries[ipNoCidr] = e
-		}
 	}
 
 	logrus.Debugf("handleNonPeerRemoteEntries: o.prevNonPeerRemoteEntries: %+v", o.prevNonPeerRemoteEntries)
@@ -387,10 +341,13 @@ func (o *Overlay) handleNonPeerRemoteEntries(diff entriesDiff, peersMapping map[
 func (o *Overlay) GetMyVTEPInfo() (net.HardwareAddr, error) {
 	logrus.Debugf("vxlan: GetMyVTEPInfo")
 
-	myRancherIPString := o.db.LocalIpAddress()
-	myRancherIP := net.ParseIP(myRancherIPString)
-	logrus.Debugf("myRancherIP: %v", myRancherIPString)
-	mac, err := getMACAddressForVxlanIP(vxlanMACRange, myRancherIP)
+	myOverlayIPString := o.db.LocalIpAddress()
+	myOverlayIP := net.ParseIP(myOverlayIPString)
+	if myOverlayIP == nil {
+		return nil, fmt.Errorf("invalid local overlay IP address")
+	}
+	logrus.Debugf("myOverlayIP: %v", myOverlayIPString)
+	mac, err := getMACAddressForVxlanIP(vxlanMACRange, myOverlayIP)
 	if err != nil {
 		return nil, err
 	}

@@ -1,14 +1,13 @@
 package mdchandler
 
 import (
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/backend"
 	"github.com/rancher/go-rancher-metadata/metadata"
-	"github.com/rancher/rancher-net/backend"
+	"github.com/sirupsen/logrus"
 )
 
 var (
 	changeCheckInterval = 2
-	metadataURL         = "http://rancher-metadata.rancher.internal/2015-12-19"
 )
 
 // MetadataChangeHandler listens for version changes of metadata
@@ -18,18 +17,17 @@ type MetadataChangeHandler struct {
 	mc      metadata.Client
 }
 
-// NewMetadataChangeHandler is used to create a OnChange
-// handler for Meatadta
-func NewMetadataChangeHandler(b backend.Backend) *MetadataChangeHandler {
+// NewMetadataChangeHandler creates a metadata change handler using the same
+// endpoint as the overlay store.
+func NewMetadataChangeHandler(b backend.Backend, metadataURL string) (*MetadataChangeHandler, error) {
 	mc, err := metadata.NewClientAndWait(metadataURL)
 	if err != nil {
-		logrus.Errorf("couldn't create metadata client: %v", err)
-		return nil
+		return nil, err
 	}
 	return &MetadataChangeHandler{
 		Backend: b,
 		mc:      mc,
-	}
+	}, nil
 }
 
 // OnChangeHandler is the actual callback function called when

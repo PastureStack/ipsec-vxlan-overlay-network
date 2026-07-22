@@ -8,8 +8,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/bronze1man/goStrongswanVici"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -33,7 +33,7 @@ var (
 		"local_ts": ["0.0.0.0/0"],
 		"remote_ts": ["0.0.0.0/0"],
 		"esp_proposals":  ["aes128gcm16-modp2048", "aes-modp2048"],
-		"start_action": "start",
+		"start_action": "none",
 		"close_action": "start",
 		"mode": "tunnel",
 		"policies": "no"
