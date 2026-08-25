@@ -1,6 +1,8 @@
 module github.com/PastureStack/ipsec-vxlan-overlay-network
 
-go 1.27.0
+go 1.26.0
+
+toolchain go1.27.0
 
 require (
 	github.com/bronze1man/goStrongswanVici v0.0.0-20231128135937-211cef3b0b20
