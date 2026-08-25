@@ -16,10 +16,11 @@ func ListenAndServe(db store.Store, ifaceName string) error {
 		return err
 	}
 
-	client, err := arp.NewClient(listenIface)
+	client, err := arp.Dial(listenIface)
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
 	logrus.Infof("Listening for ARP requests on %s", ifaceName)
 	for {

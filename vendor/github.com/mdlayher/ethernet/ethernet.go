@@ -5,6 +5,7 @@ package ethernet
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"net"
@@ -18,17 +19,13 @@ const (
 	minPayload = 46
 )
 
-var (
-	// Broadcast is a special hardware address which indicates a Frame should
-	// be sent to every device on a given LAN segment.
-	Broadcast = net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-)
+// Broadcast is a special hardware address which indicates a Frame should
+// be sent to every device on a given LAN segment.
+var Broadcast = net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
-var (
-	// ErrInvalidFCS is returned when Frame.UnmarshalFCS detects an incorrect
-	// Ethernet frame check sequence in a byte slice for a Frame.
-	ErrInvalidFCS = errors.New("invalid frame check sequence")
-)
+// ErrInvalidFCS is returned when Frame.UnmarshalFCS detects an incorrect
+// Ethernet frame check sequence in a byte slice for a Frame.
+var ErrInvalidFCS = errors.New("invalid frame check sequence")
 
 // An EtherType is a value used to identify an upper layer protocol
 // encapsulated in a Frame.
@@ -41,8 +38,12 @@ type EtherType uint16
 const (
 	EtherTypeIPv4 EtherType = 0x0800
 	EtherTypeARP  EtherType = 0x0806
-	EtherTypeVLAN EtherType = 0x8100
 	EtherTypeIPv6 EtherType = 0x86DD
+
+	// EtherTypeVLAN and EtherTypeServiceVLAN are used as 802.1Q Tag Protocol
+	// Identifiers (TPIDs).
+	EtherTypeVLAN        EtherType = 0x8100
+	EtherTypeServiceVLAN EtherType = 0x88a8
 )
 
 // A Frame is an IEEE 802.3 Ethernet II frame.  A Frame contains information
@@ -61,12 +62,17 @@ type Frame struct {
 	// send this Frame.
 	Source net.HardwareAddr
 
-	// VLAN specifies one or more optional 802.1Q VLAN tags, which may or may
+	// ServiceVLAN specifies an optional 802.1Q service VLAN tag, for use with
+	// 802.1ad double tagging, or "Q-in-Q". If ServiceVLAN is not nil, VLAN must
+	// not be nil as well.
+	//
+	// Most users should leave this field set to nil and use VLAN instead.
+	ServiceVLAN *VLAN
+
+	// VLAN specifies an optional 802.1Q customer VLAN tag, which may or may
 	// not be present in a Frame.  It is important to note that the operating
 	// system may automatically strip VLAN tags before they can be parsed.
-	//
-	// If no VLAN tags are present, this length of the slice will be 0.
-	VLAN []*VLAN
+	VLAN *VLAN
 
 	// EtherType is a value used to identify an upper layer protocol
 	// encapsulated in this Frame.
@@ -77,10 +83,6 @@ type Frame struct {
 }
 
 // MarshalBinary allocates a byte slice and marshals a Frame into binary form.
-//
-// If one or more VLANs are set and their priority values are too large
-// (greater than 7), or their IDs are too large (greater than 4094),
-// ErrInvalidVLAN is returned.
 func (f *Frame) MarshalBinary() ([]byte, error) {
 	b := make([]byte, f.length())
 	_, err := f.read(b)
@@ -94,10 +96,6 @@ func (f *Frame) MarshalBinary() ([]byte, error) {
 // Most users should use MarshalBinary instead.  MarshalFCS is provided as a
 // convenience for rare occasions when the operating system cannot
 // automatically generate a frame check sequence for an Ethernet frame.
-//
-// If one or more VLANs are set and their priority values are too large
-// (greater than 7), or their IDs are too large (greater than 4094),
-// ErrInvalidVLAN is returned.
 func (f *Frame) MarshalFCS() ([]byte, error) {
 	// Frame length with 4 extra bytes for frame check sequence
 	b := make([]byte, f.length()+4)
@@ -114,18 +112,34 @@ func (f *Frame) MarshalFCS() ([]byte, error) {
 // read reads data from a Frame into b.  read is used to marshal a Frame
 // into binary form, but does not allocate on its own.
 func (f *Frame) read(b []byte) (int, error) {
+	// S-VLAN must also have accompanying C-VLAN.
+	if f.ServiceVLAN != nil && f.VLAN == nil {
+		return 0, ErrInvalidVLAN
+	}
+
 	copy(b[0:6], f.Destination)
 	copy(b[6:12], f.Source)
 
-	// Marshal each VLAN tag into bytes, inserting a VLAN EtherType value
-	// before each, so devices know that one or more VLANs are present.
-	n := 12
-	for _, v := range f.VLAN {
-		// Add VLAN EtherType and VLAN bytes
-		binary.BigEndian.PutUint16(b[n:n+2], uint16(EtherTypeVLAN))
+	// Marshal each non-nil VLAN tag into bytes, inserting the appropriate
+	// EtherType/TPID before each, so devices know that one or more VLANs
+	// are present.
+	vlans := []struct {
+		vlan *VLAN
+		tpid EtherType
+	}{
+		{vlan: f.ServiceVLAN, tpid: EtherTypeServiceVLAN},
+		{vlan: f.VLAN, tpid: EtherTypeVLAN},
+	}
 
-		// If VLAN contains any invalid values, an error will be returned here
-		if _, err := v.read(b[n+2 : n+4]); err != nil {
+	n := 12
+	for _, vt := range vlans {
+		if vt.vlan == nil {
+			continue
+		}
+
+		// Add VLAN EtherType and VLAN bytes.
+		binary.BigEndian.PutUint16(b[n:n+2], uint16(vt.tpid))
+		if _, err := vt.vlan.read(b[n+2 : n+4]); err != nil {
 			return 0, err
 		}
 		n += 4
@@ -140,12 +154,6 @@ func (f *Frame) read(b []byte) (int, error) {
 }
 
 // UnmarshalBinary unmarshals a byte slice into a Frame.
-//
-// If the byte slice does not contain enough data to unmarshal a valid Frame,
-// io.ErrUnexpectedEOF is returned.
-//
-// If one or more VLANs are detected and their IDs are too large (greater than
-// 4094), ErrInvalidVLAN is returned.
 func (f *Frame) UnmarshalBinary(b []byte) error {
 	// Verify that both hardware addresses and a single EtherType are present
 	if len(b) < 14 {
@@ -158,24 +166,20 @@ func (f *Frame) UnmarshalBinary(b []byte) error {
 	// Continue looping and parsing VLAN tags until no more VLAN EtherType
 	// values are detected
 	et := EtherType(binary.BigEndian.Uint16(b[n-2 : n]))
-	for ; et == EtherTypeVLAN; n += 4 {
-		// 4 or more bytes must remain for valid VLAN tag and EtherType
-		if len(b[n:]) < 4 {
-			return io.ErrUnexpectedEOF
-		}
-
-		// Body of VLAN tag is 2 bytes in length
-		vlan := new(VLAN)
-		if err := vlan.UnmarshalBinary(b[n : n+2]); err != nil {
+	switch et {
+	case EtherTypeServiceVLAN, EtherTypeVLAN:
+		// VLAN type is hinted for further parsing.  An index is returned which
+		// indicates how many bytes were consumed by VLAN tags.
+		nn, err := f.unmarshalVLANs(et, b[n:])
+		if err != nil {
 			return err
 		}
-		f.VLAN = append(f.VLAN, vlan)
 
-		// Parse next tag to determine if it is another VLAN, or if not,
-		// break the loop
-		et = EtherType(binary.BigEndian.Uint16(b[n+2 : n+4]))
+		n += nn
+	default:
+		// No VLANs detected.
+		f.EtherType = et
 	}
-	f.EtherType = et
 
 	// Allocate single byte slice to store destination and source hardware
 	// addresses, and payload
@@ -202,15 +206,6 @@ func (f *Frame) UnmarshalBinary(b []byte) error {
 // Most users should use UnmarshalBinary instead.  UnmarshalFCS is provided as
 // a convenience for rare occasions when the operating system cannot
 // automatically verify a frame check sequence for an Ethernet frame.
-//
-// If the frame check sequence present in the byte slice does not match the one
-// computed by UnmarshalFCS, ErrInvalidFCS is returned.
-//
-// If the byte slice does not contain enough data to unmarshal a valid Frame,
-// io.ErrUnexpectedEOF is returned.
-//
-// If one or more VLANs are detected and their IDs are too large (greater than
-// 4094), ErrInvalidVLAN is returned.
 func (f *Frame) UnmarshalFCS(b []byte) error {
 	// Must contain enough data for FCS, to avoid panics
 	if len(b) < 4 {
@@ -236,10 +231,67 @@ func (f *Frame) length() int {
 		pl = minPayload
 	}
 
+	// Add additional length if VLAN tags are needed.
+	var vlanLen int
+	switch {
+	case f.ServiceVLAN != nil && f.VLAN != nil:
+		vlanLen = 8
+	case f.VLAN != nil:
+		vlanLen = 4
+	}
+
 	// 6 bytes: destination hardware address
 	// 6 bytes: source hardware address
-	// N bytes: 4 * N VLAN tags
+	// N bytes: VLAN tags (if present)
 	// 2 bytes: EtherType
 	// N bytes: payload length (may be padded)
-	return 6 + 6 + (4 * len(f.VLAN)) + 2 + pl
+	return 6 + 6 + vlanLen + 2 + pl
+}
+
+// unmarshalVLANs unmarshals S/C-VLAN tags.  It is assumed that tpid
+// is a valid S/C-VLAN TPID.
+func (f *Frame) unmarshalVLANs(tpid EtherType, b []byte) (int, error) {
+	// 4 or more bytes must remain for valid S/C-VLAN tag and EtherType.
+	if len(b) < 4 {
+		return 0, io.ErrUnexpectedEOF
+	}
+
+	// Track how many bytes are consumed by VLAN tags.
+	var n int
+
+	switch tpid {
+	case EtherTypeServiceVLAN:
+		vlan := new(VLAN)
+		if err := vlan.UnmarshalBinary(b[n : n+2]); err != nil {
+			return 0, err
+		}
+		f.ServiceVLAN = vlan
+
+		// Assume that a C-VLAN immediately trails an S-VLAN.
+		if EtherType(binary.BigEndian.Uint16(b[n+2:n+4])) != EtherTypeVLAN {
+			return 0, ErrInvalidVLAN
+		}
+
+		// 4 or more bytes must remain for valid C-VLAN tag and EtherType.
+		n += 4
+		if len(b[n:]) < 4 {
+			return 0, io.ErrUnexpectedEOF
+		}
+
+		// Continue to parse the C-VLAN.
+		fallthrough
+	case EtherTypeVLAN:
+		vlan := new(VLAN)
+		if err := vlan.UnmarshalBinary(b[n : n+2]); err != nil {
+			return 0, err
+		}
+
+		f.VLAN = vlan
+		f.EtherType = EtherType(binary.BigEndian.Uint16(b[n+2 : n+4]))
+		n += 4
+	default:
+		panic(fmt.Sprintf("unknown VLAN TPID: %04x", tpid))
+	}
+
+	return n, nil
 }

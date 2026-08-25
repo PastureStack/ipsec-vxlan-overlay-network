@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	yaml "gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // newMetadataFixture serves the preserved metadata answer documents through

@@ -1,5 +1,5 @@
 strongswan vici golang client
-=============================
+============================= 
 [![Build Status](https://travis-ci.org/bronze1man/goStrongswanVici.svg)](https://travis-ci.org/bronze1man/goStrongswanVici)
 [![GoDoc](https://godoc.org/github.com/bronze1man/goStrongswanVici?status.svg)](https://godoc.org/github.com/bronze1man/goStrongswanVici)
 [![docs examples](https://sourcegraph.com/api/repos/github.com/bronze1man/goStrongswanVici/badges/docs-examples.png)](https://sourcegraph.com/github.com/bronze1man/goStrongswanVici)
@@ -11,20 +11,46 @@ strongswan vici golang client
 
 a golang implement of strongswan vici plugin client.
 
+* GoStrongswanVici is not no longer actively maintained.
+* It is not compatible to current strongswan version like 5.8.2 . (https://github.com/bronze1man/goStrongswanVici/issues/46)
+* You can try https://github.com/strongswan/govici/ .
+
 ### document
 * http://godoc.org/github.com/bronze1man/goStrongswanVici
+* https://docs.strongswan.org/docs/5.9/plugins/vici.html
 * https://github.com/strongswan/strongswan/tree/master/src/libcharon/plugins/vici
 
 ### Implemented command list
 * version()
 * list-sas()
+* get-shared()
 * terminate()
 * load-conn()
+* load-cert()
+* load-key()
+* load-pool()
+* load-shared()
 * list-conns()
 * unload-conn()
-* load-shared()
+* unload-shared()
 
 If you need some commands, but it is not here .you can implement yourself, and send a pull request to this project.
+
+### Testing
+
+To test the library's functionality, `docker-compose` is used to spin up strongswan in a separate Docker container.
+
+```bash
+$ docker-compose up -V
+Creating network "gostrongswanvici_default" with the default drive
+Creating volume "gostrongswanvici_charondata" with default driver
+Creating gostrongswanvici_strongswan_1 ... done
+Creating gostrongswanvici_go-test_1    ... done
+Attaching to gostrongswanvici_strongswan_1, gostrongswanvici_go-test_1
+...
+go-test_1     | ok      github.com/RenaultAI/goStrongswanVici   0.017s
+gostrongswanvici_go-test_1 exited with code 0
+```
 
 ### example
 ```go
@@ -129,7 +155,7 @@ func main(){
 			}
 	err = client.UnloadConn(unloadConnReq)
 	if err != nil {
-		panic(error)
+		panic(err)
 	}
 
 	// kill all conns in strongswan

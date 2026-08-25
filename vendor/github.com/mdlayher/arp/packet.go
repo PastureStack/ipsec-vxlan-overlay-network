@@ -1,10 +1,12 @@
 package arp
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 
 	"github.com/mdlayher/ethernet"
 )
@@ -61,14 +63,14 @@ type Packet struct {
 	SenderHardwareAddr net.HardwareAddr
 
 	// SenderIP specifies the IPv4 address of the sender of this Packet.
-	SenderIP net.IP
+	SenderIP netip.Addr
 
 	// TargetHardwareAddr specifies the hardware address of the target of this
 	// Packet.
 	TargetHardwareAddr net.HardwareAddr
 
 	// TargetIP specifies the IPv4 address of the target of this Packet.
-	TargetIP net.IP
+	TargetIP netip.Addr
 }
 
 // NewPacket creates a new Packet from an input Operation and hardware/IPv4
@@ -79,7 +81,7 @@ type Packet struct {
 //
 // If either IP address is not an IPv4 address, or there is a length mismatch
 // between the two, ErrInvalidIP is returned.
-func NewPacket(op Operation, srcHW net.HardwareAddr, srcIP net.IP, dstHW net.HardwareAddr, dstIP net.IP) (*Packet, error) {
+func NewPacket(op Operation, srcHW net.HardwareAddr, srcIP netip.Addr, dstHW net.HardwareAddr, dstIP netip.Addr) (*Packet, error) {
 	// Validate hardware addresses for minimum length, and matching length
 	if len(srcHW) < 6 {
 		return nil, ErrInvalidHardwareAddr
@@ -87,18 +89,12 @@ func NewPacket(op Operation, srcHW net.HardwareAddr, srcIP net.IP, dstHW net.Har
 	if len(dstHW) < 6 {
 		return nil, ErrInvalidHardwareAddr
 	}
-	if len(srcHW) != len(dstHW) {
+	if !bytes.Equal(ethernet.Broadcast, dstHW) && len(srcHW) != len(dstHW) {
 		return nil, ErrInvalidHardwareAddr
 	}
 
-	// Validate IP addresses to ensure they are IPv4 addresses, and
-	// correct length
-	srcIP = srcIP.To4()
-	if srcIP == nil {
-		return nil, ErrInvalidIP
-	}
-	dstIP = dstIP.To4()
-	if dstIP == nil {
+	// Validate IP addresses to ensure they are IPv4 addresses.
+	if !srcIP.Is4() || !dstIP.Is4() {
 		return nil, ErrInvalidIP
 	}
 
@@ -112,7 +108,7 @@ func NewPacket(op Operation, srcHW net.HardwareAddr, srcIP net.IP, dstHW net.Har
 
 		// Populate other fields using input data
 		HardwareAddrLength: uint8(len(srcHW)),
-		IPLength:           uint8(len(srcIP)),
+		IPLength:           uint8(4),
 		Operation:          op,
 		SenderHardwareAddr: srcHW,
 		SenderIP:           srcIP,
@@ -138,7 +134,7 @@ func (p *Packet) MarshalBinary() ([]byte, error) {
 	// Though an IPv4 address should always 4 bytes, go-fuzz
 	// very quickly created several crasher scenarios which
 	// indicated that these values can lie.
-	b := make([]byte, 2+2+1+1+2+(p.IPLength*2)+(p.HardwareAddrLength*2))
+	b := make([]byte, 2+2+1+1+2+(int(p.IPLength)*2)+(int(p.HardwareAddrLength)*2))
 
 	// Marshal fixed length data
 
@@ -160,13 +156,15 @@ func (p *Packet) MarshalBinary() ([]byte, error) {
 	copy(b[n:n+hal], p.SenderHardwareAddr)
 	n += hal
 
-	copy(b[n:n+pl], p.SenderIP)
+	senderIP := p.SenderIP.As16()
+	copy(b[n:n+pl], senderIP[16-pl:])
 	n += pl
 
 	copy(b[n:n+hal], p.TargetHardwareAddr)
 	n += hal
 
-	copy(b[n:n+pl], p.TargetIP)
+	targetIP := p.TargetIP.As16()
+	copy(b[n:n+pl], targetIP[16-pl:])
 
 	return b, nil
 }
@@ -216,7 +214,11 @@ func (p *Packet) UnmarshalBinary(b []byte) error {
 
 	// Sender IP address
 	copy(bb[ml:ml+il], b[n:n+il])
-	p.SenderIP = bb[ml : ml+il]
+	senderIP, ok := netip.AddrFromSlice(bb[ml : ml+il])
+	if !ok {
+		return ErrInvalidIP
+	}
+	p.SenderIP = senderIP
 	n += il
 
 	// Target hardware address
@@ -226,7 +228,11 @@ func (p *Packet) UnmarshalBinary(b []byte) error {
 
 	// Target IP address
 	copy(bb[ml2+il:ml2+il2], b[n:n+il])
-	p.TargetIP = bb[ml2+il : ml2+il2]
+	targetIP, ok := netip.AddrFromSlice(bb[ml2+il : ml2+il2])
+	if !ok {
+		return ErrInvalidIP
+	}
+	p.TargetIP = targetIP
 
 	return nil
 }

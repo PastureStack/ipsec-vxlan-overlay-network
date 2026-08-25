@@ -3,50 +3,70 @@ package arp
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/mdlayher/ethernet"
-	"github.com/mdlayher/raw"
+	"github.com/mdlayher/packet"
 )
 
-var (
-	// errNoIPv4Addr is returned when an interface does not have an IPv4
-	// address.
-	errNoIPv4Addr = errors.New("no IPv4 address available for interface")
-)
+// errNoIPv4Addr is returned when an interface does not have an IPv4
+// address.
+var errNoIPv4Addr = errors.New("no IPv4 address available for interface")
+
+// protocolARP is the uint16 EtherType representation of ARP (Address
+// Resolution Protocol, RFC 826).
+const protocolARP = 0x0806
 
 // A Client is an ARP client, which can be used to send and receive
 // ARP packets.
 type Client struct {
 	ifi *net.Interface
-	ip  net.IP
+	ip  netip.Addr
 	p   net.PacketConn
 }
 
-// NewClient creates a new Client using the specified network interface.
-// NewClient retrieves the IPv4 address of the interface and binds a raw socket
+// Dial creates a new Client using the specified network interface.
+// Dial retrieves the IPv4 address of the interface and binds a raw socket
 // to send and receive ARP packets.
-func NewClient(ifi *net.Interface) (*Client, error) {
+func Dial(ifi *net.Interface) (*Client, error) {
 	// Open raw socket to send and receive ARP packets using ethernet frames
-	// we build ourselves
-	p, err := raw.ListenPacket(ifi, raw.ProtocolARP)
+	// we build ourselves.
+	p, err := packet.Listen(ifi, packet.Raw, protocolARP, nil)
 	if err != nil {
 		return nil, err
 	}
+	return New(ifi, p)
+}
 
+// New creates a new Client using the specified network interface
+// and net.PacketConn. This allows the caller to define exactly how they bind to the
+// net.PacketConn. This is most useful to define what protocol to pass to socket(7).
+//
+// In most cases, callers would be better off calling Dial.
+func New(ifi *net.Interface, p net.PacketConn) (*Client, error) {
 	// Check for usable IPv4 addresses for the Client
 	addrs, err := ifi.Addrs()
 	if err != nil {
 		return nil, err
 	}
 
-	return newClient(ifi, p, addrs)
+	ipaddrs := make([]netip.Addr, len(addrs))
+	for i, a := range addrs {
+		ipPrefix, err := netip.ParsePrefix(a.String())
+		if err != nil {
+			return nil, err
+		}
+		ipaddrs[i] = ipPrefix.Addr()
+	}
+
+	return newClient(ifi, p, ipaddrs)
 }
 
 // newClient is the internal, generic implementation of newClient.  It is used
 // to allow an arbitrary net.PacketConn to be used in a Client, so testing
 // is easier to accomplish.
-func newClient(ifi *net.Interface, p net.PacketConn, addrs []net.Addr) (*Client, error) {
+func newClient(ifi *net.Interface, p net.PacketConn, addrs []netip.Addr) (*Client, error) {
 	ip, err := firstIPv4Addr(addrs)
 	if err != nil {
 		return nil, err
@@ -72,8 +92,8 @@ func (c *Client) Close() error {
 // Unlike Resolve, which provides an easier interface for getting the
 // hardware address, Request allows sending many requests in a row,
 // retrieving the responses afterwards.
-func (c *Client) Request(ip net.IP) error {
-	if c.ip == nil {
+func (c *Client) Request(ip netip.Addr) error {
+	if !c.ip.IsValid() {
 		return errNoIPv4Addr
 	}
 
@@ -91,7 +111,7 @@ func (c *Client) Request(ip net.IP) error {
 // be used concurrently with Read. If you're using Read (usually in a
 // loop), you need to use Request instead. Resolve may read more than
 // one message if it receives messages unrelated to the request.
-func (c *Client) Resolve(ip net.IP) (net.HardwareAddr, error) {
+func (c *Client) Resolve(ip netip.Addr) (net.HardwareAddr, error) {
 	err := c.Request(ip)
 	if err != nil {
 		return nil, err
@@ -104,7 +124,7 @@ func (c *Client) Resolve(ip net.IP) (net.HardwareAddr, error) {
 			return nil, err
 		}
 
-		if arp.Operation != OperationReply || !arp.SenderIP.Equal(ip) {
+		if arp.Operation != OperationReply || arp.SenderIP != ip {
 			continue
 		}
 
@@ -143,7 +163,7 @@ func (c *Client) WriteTo(p *Packet, addr net.HardwareAddr) error {
 	}
 
 	f := &ethernet.Frame{
-		Destination: p.TargetHardwareAddr,
+		Destination: addr,
 		Source:      p.SenderHardwareAddr,
 		EtherType:   ethernet.EtherTypeARP,
 		Payload:     pb,
@@ -154,7 +174,7 @@ func (c *Client) WriteTo(p *Packet, addr net.HardwareAddr) error {
 		return err
 	}
 
-	_, err = c.p.WriteTo(fb, &raw.Addr{HardwareAddr: addr})
+	_, err = c.p.WriteTo(fb, &packet.Addr{HardwareAddr: addr})
 	return err
 }
 
@@ -165,7 +185,7 @@ func (c *Client) WriteTo(p *Packet, addr net.HardwareAddr) error {
 //
 // For more fine-grained control, use WriteTo to write a custom
 // response.
-func (c *Client) Reply(req *Packet, hwAddr net.HardwareAddr, ip net.IP) error {
+func (c *Client) Reply(req *Packet, hwAddr net.HardwareAddr, ip netip.Addr) error {
 	p, err := NewPacket(OperationReply, hwAddr, ip, req.SenderHardwareAddr, req.SenderIP)
 	if err != nil {
 		return err
@@ -211,25 +231,19 @@ func (c Client) HardwareAddr() net.HardwareAddr {
 	return c.ifi.HardwareAddr
 }
 
+// InterfaceName fetches the name for the interface associated
+// with the connection.
+func (c Client) InterfaceName() string {
+	return c.ifi.Name
+}
+
 // firstIPv4Addr attempts to retrieve the first detected IPv4 address from an
 // input slice of network addresses.
-func firstIPv4Addr(addrs []net.Addr) (net.IP, error) {
+func firstIPv4Addr(addrs []netip.Addr) (netip.Addr, error) {
 	for _, a := range addrs {
-		if a.Network() != "ip+net" {
-			continue
-		}
-
-		ip, _, err := net.ParseCIDR(a.String())
-		if err != nil {
-			return nil, err
-		}
-
-		// "If ip is not an IPv4 address, To4 returns nil."
-		// Reference: http://golang.org/pkg/net/#IP.To4
-		if ip4 := ip.To4(); ip4 != nil {
-			return ip4, nil
+		if a.Is4() {
+			return a, nil
 		}
 	}
-
-	return nil, nil
+	return netip.Addr{}, errNoIPv4Addr
 }

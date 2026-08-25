@@ -14,7 +14,7 @@ PastureStack does not relicense third-party work. Copyright, license, and attrib
 | Per-host subnet | 0.2.7 | [PastureStack/per-host-subnet](https://github.com/PastureStack/per-host-subnet) | Apache-2.0 |
 | Mount propagation | 1.0.10 | [PastureStack/mount-propagation](https://github.com/PastureStack/mount-propagation) | Apache-2.0 |
 
-The reachable vendored Go dependency set and each complete source revision are recorded in [`vendor.lock`](vendor.lock). Unreachable historical test-server dependencies are not shipped.
+The reachable Go dependency graph is declared in [`go.mod`](go.mod), checksum-bound by [`go.sum`](go.sum), and materialized in the standard module-aware `vendor` tree. Unreachable historical test-server dependencies are not shipped.
 
 The image stores Ubuntu package copyright files under `/licenses/ubuntu-packages`. It also carries the exact strongSwan original source archive, Ubuntu packaging archive, and source control file under `/licenses/strongswan-source`, with hashes verified during the image build.
 

@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -24,8 +24,8 @@ jobs:
       - name: Install verified Go toolchain
         shell: bash
         env:
-          GO_VERSION: 1.26.5
-          GO_LINUX_AMD64_SHA256: 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+          GO_VERSION: 1.27.0
+          GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
         run: |
           set -euo pipefail
           archive="go${GO_VERSION}.linux-amd64.tar.gz"
@@ -35,15 +35,12 @@ jobs:
           sudo rm -rf /usr/local/go
           sudo tar -C /usr/local -xzf "/tmp/${archive}"
           printf '/usr/local/go/bin\n' >> "$GITHUB_PATH"
-          candidate_gopath="$RUNNER_TEMP/ipsec-vxlan-overlay-network-codeql-gopath"
-          printf 'GOPATH=%s\n' "$candidate_gopath" >> "$GITHUB_ENV"
-          printf 'GO111MODULE=off\n' >> "$GITHUB_ENV"
+          printf 'GOFLAGS=-mod=vendor\n' >> "$GITHUB_ENV"
+          printf 'GOWORK=off\n' >> "$GITHUB_ENV"
           printf 'GOTOOLCHAIN=local\n' >> "$GITHUB_ENV"
-          mkdir -p "$candidate_gopath/src/github.com/PastureStack"
-          ln -s "$GITHUB_WORKSPACE" "$candidate_gopath/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
+        uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           languages: go
           queries: security-extended
@@ -53,13 +50,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           go test -run '^$' ./...
           go test -run '^$' -tags=integration ./store
           VERSION_OVERRIDE=0.14.27 ./scripts/build
 
       - name: Analyze without publishing temporary alerts
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
+        uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           category: '/language:go'
           upload: never
@@ -99,7 +96,7 @@ jobs:
 
       - name: Upload verification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ipsec-vxlan-overlay-network-codeql-${{ github.sha }}
           path: codeql-results/

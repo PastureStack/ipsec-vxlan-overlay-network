@@ -24,15 +24,16 @@ jobs:
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
       IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.27
-      GO_VERSION: 1.26.5
-      GO_LINUX_AMD64_SHA256: 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
-      TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+      GO_VERSION: 1.27.0
+      GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
+      TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
       TRIVY_CACHE: /tmp/pasturestack-ipsec-vxlan-overlay-trivy-cache
-      GO111MODULE: 'off'
+      GOFLAGS: '-mod=vendor'
+      GOWORK: 'off'
       GOTOOLCHAIN: local
     steps:
       - name: Check out complete reviewed history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -47,7 +48,7 @@ jobs:
           test "$(git rev-list --count --merges 721d6ddb2f0a4faa11c9a50e75ed28e1f7cad317..HEAD)" -eq 0
           source scripts/version
           test "$VERSION" = "$CANDIDATE_VERSION"
-          bash scripts/verify-vendor-lock
+          go list -mod=vendor ./... >/dev/null
           private_pattern=$(printf '%s|%s|%s' 'chen''21019' '10[.]0[.]0[.]''125' 'C:\\''Users\\')
           if git grep -n -E "$private_pattern" -- .; then
             echo 'Private operator data is present in the public source tree.' >&2
@@ -55,10 +56,10 @@ jobs:
           fi
           mkdir -p evidence
           git ls-tree -r --name-only HEAD | LC_ALL=C sort > evidence/source-tree.txt
-          sha256sum vendor.lock ubuntu-apt.lock Dockerfile.dapper package/Dockerfile \
+          sha256sum go.mod go.sum vendor/modules.txt ubuntu-apt.lock Dockerfile.dapper package/Dockerfile \
             security/dapper-linux-libc-dev.cves > evidence/source-locks.sha256
 
-      - name: Install verified Go toolchain and create GOPATH view
+      - name: Install verified Go toolchain
         shell: bash
         run: |
           set -euo pipefail
@@ -68,18 +69,14 @@ jobs:
           printf '%s  %s\n' "$GO_LINUX_AMD64_SHA256" "/tmp/${archive}" | sha256sum -c -
           sudo rm -rf /usr/local/go
           sudo tar -C /usr/local -xzf "/tmp/${archive}"
-          candidate_gopath="$RUNNER_TEMP/ipsec-vxlan-overlay-network-gopath"
-          printf 'GOPATH=%s\n' "$candidate_gopath" >> "$GITHUB_ENV"
           printf '/usr/local/go/bin\n' >> "$GITHUB_PATH"
-          mkdir -p "$candidate_gopath/src/github.com/PastureStack"
-          ln -s "$GITHUB_WORKSPACE" "$candidate_gopath/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
           /usr/local/go/bin/go version | grep -Fx "go version go${GO_VERSION} linux/amd64"
 
       - name: Validate, race-test, integrate metadata, and build reproducibly
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           export PATH="/usr/local/go/bin:$PATH"
           ./scripts/validate
           ./scripts/test
@@ -99,7 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           export PATH="/usr/local/go/bin:$PATH"
           ./scripts/package
           test "$(cat dist/images)" = "$IMAGE"
@@ -110,7 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           dapper_image="pasturestack-ipsec-overlay-dapper:${GITHUB_SHA}"
           docker build --pull --build-arg DAPPER_HOST_ARCH=amd64 \
             --tag "$dapper_image" --file Dockerfile.dapper .
@@ -121,7 +118,7 @@ jobs:
             /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv \
             > evidence/runtime-ubuntu-apt-packages.tsv
           docker run --rm --entrypoint docker "$dapper_image" --version \
-            | grep -F 'Docker version 29.6.2' \
+            | grep -F 'Docker version 29.7.2' \
             > evidence/docker-cli-version.txt
           printf 'DAPPER_IMAGE=%s\n' "$dapper_image" >> "$GITHUB_ENV"
 
@@ -129,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           IMAGE="$IMAGE" ./scripts/integration-two-node-vxlan
           IMAGE="$IMAGE" ./scripts/integration-two-node-ipsec
 
@@ -137,11 +134,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           export PATH="/usr/local/go/bin:$PATH"
           tool_dir="$RUNNER_TEMP/security-tools"
           mkdir -p "$tool_dir"
-          GO111MODULE=on GOBIN="$tool_dir" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          GOFLAGS=-mod=mod GOBIN="$tool_dir" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology; do
             "$tool_dir/govulncheck" -mode=binary -json "bin/$binary" \
               > "evidence/govulncheck-${binary}.json"
@@ -155,7 +152,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           mkdir -p "$TRIVY_CACHE"
           source_tree=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-source.XXXXXX")
           product_tree=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-product.XXXXXX")
@@ -267,7 +264,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GOPATH/src/github.com/PastureStack/ipsec-vxlan-overlay-network"
+          cd "$GITHUB_WORKSPACE"
           : > evidence/security-summary.txt
           for scope in source product runtime; do
             report="evidence/${scope}-security.json"
@@ -336,7 +333,7 @@ jobs:
 
       - name: Upload evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ipsec-vxlan-overlay-network-security-${{ github.sha }}
           path: evidence/
@@ -352,5 +349,5 @@ jobs:
           set +e
           docker image rm -f "$IMAGE" "${DAPPER_IMAGE:-}" "$TRIVY_IMAGE" >/dev/null 2>&1
           docker builder prune --all --force >/dev/null 2>&1
-          sudo rm -rf -- "$TRIVY_CACHE" "$GOPATH" "$RUNNER_TEMP/security-tools" \
+          sudo rm -rf -- "$TRIVY_CACHE" "$RUNNER_TEMP/security-tools" \
             "$GITHUB_WORKSPACE/bin" "$GITHUB_WORKSPACE/dist" "$GITHUB_WORKSPACE/evidence"

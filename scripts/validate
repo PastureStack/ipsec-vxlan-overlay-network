@@ -9,8 +9,8 @@ if [ -n "$unformatted" ]; then
     exit 1
 fi
 
-go vet ./...
-./scripts/verify-vendor-lock
+go vet -mod=vendor ./...
+go list -mod=vendor ./... >/dev/null
 test ! -e trash.conf
 test -f ubuntu-apt.lock
 grep -Fx "UBUNTU_APT_SNAPSHOT='20260808T000000Z'" ubuntu-apt.lock >/dev/null
@@ -22,13 +22,10 @@ if git grep -n -E \
     echo "A mutable Ubuntu package source remains" >&2
     exit 1
 fi
-test "$(grep -Ev '^[[:space:]]*(#|$)' vendor.lock | wc -l)" -eq 12
-for removed_tree in \
-    vendor/cloud.google.com/go \
-    vendor/github.com/golang/gddo \
-    vendor/github.com/rancher/rancher-metadata; do
-    test ! -e "$removed_tree"
-done
+test -f go.mod
+test -f go.sum
+test -f vendor/modules.txt
+test ! -e vendor.lock
 if git grep -n -E \
     'cloud[.]google[.]com/go|github[.]com/golang/gddo|github[.]com/rancher/rancher-metadata' \
     -- '*.go'; then

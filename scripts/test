@@ -2,5 +2,5 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-go test -race -cover ./...
-go test -race -cover -tags=integration ./store
+go test -mod=vendor -race -cover ./...
+go test -mod=vendor -race -cover -tags=integration ./store

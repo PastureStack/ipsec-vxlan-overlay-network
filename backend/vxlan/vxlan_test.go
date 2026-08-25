@@ -273,7 +273,7 @@ func TestFindVxlanInterace(t *testing.T) {
 		t.Errorf("Expecting error, but got no error")
 	}
 
-	_, err = findVxlanInterface("eth0")
+	_, err = findVxlanInterface("lo")
 	if err != nil {
 		t.Errorf("Not expecting error, but got %v", err)
 	}
@@ -379,6 +379,9 @@ func TestRemoteVxlanEntryOperations(t *testing.T) {
 }
 
 func TestVxlanFunctionality(t *testing.T) {
+	if os.Getenv("PASTURESTACK_LIVE_METADATA_TESTS") != "1" {
+		t.Skip("set PASTURESTACK_LIVE_METADATA_TESTS=1 in an environment with platform metadata")
+	}
 	db, err := store.NewMetadataStore("")
 	if err != nil || db == nil {
 		t.Skipf("requires the platform metadata service: %v", err)
@@ -399,6 +402,9 @@ func TestVxlanFunctionality(t *testing.T) {
 }
 
 func TestGetMyVtepInfo(t *testing.T) {
+	if os.Getenv("PASTURESTACK_LIVE_METADATA_TESTS") != "1" {
+		t.Skip("set PASTURESTACK_LIVE_METADATA_TESTS=1 in an environment with platform metadata")
+	}
 	vx := getRandomVxlanInterface()
 	db, err := store.NewMetadataStore("")
 	if err != nil || db == nil {
