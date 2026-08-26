@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/internal/logsafe"
 	"github.com/bronze1man/goStrongswanVici"
 	"github.com/sirupsen/logrus"
 )
@@ -54,7 +55,7 @@ func (t *Templates) Reload() error {
 		return err
 	}
 	if err := json.Unmarshal(t.ikeConfTemplate, &goStrongswanVici.IKEConf{}); err != nil {
-		logrus.Errorf("Failed to unmarshal: %v\n\t%s", err, string(t.ikeConfTemplate))
+		logrus.Errorf("Failed to unmarshal IKE config: %s", logsafe.Value(err))
 		return err
 	}
 
@@ -63,7 +64,7 @@ func (t *Templates) Reload() error {
 		return err
 	}
 	if err := json.Unmarshal(t.childSaConfTemplate, &goStrongswanVici.ChildSAConf{}); err != nil {
-		logrus.Errorf("Failed to unmarshal: %v\n\t%s", err, string(t.childSaConfTemplate))
+		logrus.Errorf("Failed to unmarshal CHILD_SA config: %s", logsafe.Value(err))
 		return err
 	}
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/internal/logsafe"
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,7 +64,7 @@ func (s *Simple) Reload() error {
 		return err
 	}
 
-	logrus.Debugf("entries: %v", entries)
+	logrus.Debugf("Loaded %d overlay entries", len(entries))
 
 	var filteredEntries []Entry
 	var self *Entry
@@ -83,7 +84,10 @@ func (s *Simple) Reload() error {
 		return fmt.Errorf("Failed to find self entry")
 	}
 
-	logrus.Debugf("self: %v", self)
+	logrus.WithFields(logrus.Fields{
+		"ip":     logsafe.Value(self.IpAddress),
+		"hostIP": logsafe.Value(self.HostIpAddress),
+	}).Debug("Selected local overlay entry")
 
 	ip, ipNet, err := net.ParseCIDR(self.IpAddress)
 	if err != nil {
@@ -138,7 +142,13 @@ func (s *Simple) Reload() error {
 		peers:             peers,
 	}
 
-	logrus.Debugf("config: %+v", s.config)
+	logrus.WithFields(logrus.Fields{
+		"entryCount":         len(filteredEntries),
+		"localCount":         len(local),
+		"remoteCount":        len(remote),
+		"remoteNonPeerCount": len(remoteNonPeersMap),
+		"peerCount":          len(peers),
+	}).Debug("Reloaded overlay store")
 
 	return nil
 }
@@ -181,13 +191,13 @@ func (s *Simple) IsRemote(ipAddress string) bool {
 	config := s.getConfig()
 
 	if _, ok := config.local[ipAddress]; ok {
-		logrus.Debugf("Local: %s", ipAddress)
+		logrus.Debugf("Local: %s", logsafe.Value(ipAddress))
 		return false
 	}
 
 	_, ok := config.remote[ipAddress]
 	if ok {
-		logrus.Debugf("Remote: %s", ipAddress)
+		logrus.Debugf("Remote: %s", logsafe.Value(ipAddress))
 	}
 	return ok
 }
