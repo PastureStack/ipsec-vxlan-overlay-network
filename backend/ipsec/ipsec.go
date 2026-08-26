@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PastureStack/ipsec-vxlan-overlay-network/internal/logsafe"
 	"github.com/PastureStack/ipsec-vxlan-overlay-network/store"
 	"github.com/bronze1man/goStrongswanVici"
 	"github.com/sirupsen/logrus"
@@ -83,7 +84,7 @@ func (o *Overlay) Start(launch bool, logFile string) {
 	}
 
 	if err := o.loadConns(); err != nil {
-		logrus.Fatalf("Failed to load connections from charon: %v", err)
+		logrus.Fatalf("Failed to load connections from charon: %s", logsafe.Value(err))
 	}
 
 	go o.monitorIpsecHealth()
@@ -123,7 +124,7 @@ func (o *Overlay) loadConns() error {
 	for _, conn := range conns {
 		for k := range conn {
 			if strings.HasPrefix(k, "conn-") {
-				logrus.Infof("Found existing connection: %s", k)
+				logrus.Infof("Found existing connection: %s", logsafe.Value(k))
 				o.hosts[strings.TrimPrefix(k, "conn-")] = o.templates.Revision()
 			}
 		}
@@ -156,13 +157,13 @@ func (o *Overlay) monitorCharon() {
 		newPid := strings.TrimSpace(string(newPidBytes))
 		if pid == "" {
 			pid = newPid
-			logrus.Infof("Charon running PID: %s", pid)
+			logrus.Infof("Charon running PID: %s", logsafe.Value(pid))
 		} else if pid != newPid {
-			logrus.Fatalf("Charon restarted, old PID: %s, new PID: %s", pid, newPid)
+			logrus.Fatalf("Charon restarted, old PID: %s, new PID: %s", logsafe.Value(pid), logsafe.Value(newPid))
 		} else {
 			o.Lock()
 			if err := Test(); err != nil {
-				logrus.Errorf("Killing charon due to: %v", err)
+				logrus.Errorf("Killing charon due to: %s", logsafe.Value(err))
 				o.killCharon(pid)
 			}
 			o.Unlock()
@@ -192,7 +193,7 @@ func runCharon(logFile string, netnsPath string) {
 	if logFile != "" {
 		output, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
-			logrus.Fatalf("Failed to log to file %s: %v", logFile, err)
+			logrus.Fatalf("Failed to log to file %s: %s", logsafe.Value(logFile), logsafe.Value(err))
 		}
 		defer output.Close()
 		cmd.Stdout = output
@@ -203,7 +204,7 @@ func runCharon(logFile string, netnsPath string) {
 		Pdeathsig: syscall.SIGTERM,
 	}
 
-	logrus.Fatalf("charon exited: %v", cmd.Run())
+	logrus.Fatalf("charon exited: %s", logsafe.Value(cmd.Run()))
 }
 
 func commandInNetns(netnsPath, name string, args ...string) *exec.Cmd {
@@ -214,8 +215,8 @@ func commandInNetns(netnsPath, name string, args ...string) *exec.Cmd {
 	return exec.Command("nsenter", nsArgs...)
 }
 
-func handleErr(firstErr, err error, fmt string, args ...interface{}) error {
-	logrus.Errorf(fmt, args...)
+func handleErr(firstErr, err error, format string, args ...interface{}) error {
+	logrus.Error(logsafe.Value(fmt.Sprintf(format, args...)))
 	if firstErr != nil {
 		return firstErr
 	}
@@ -408,7 +409,7 @@ func (o *Overlay) restartForStalePeerIdentities() error {
 				if !stale {
 					continue
 				}
-				logrus.Warnf("Detected stale IPsec peer identity in %s for host %s; restarting charon", ikeName, hostIP)
+				logrus.Warnf("Detected stale IPsec peer identity in %s for host %s; restarting charon", logsafe.Value(ikeName), logsafe.Value(hostIP))
 				o.restartCharonForRecovery(hostIP)
 				return fmt.Errorf("stale IPsec peer identity for host %s", hostIP)
 			}
@@ -455,7 +456,7 @@ func (o *Overlay) monitorIpsecHealth() {
 
 	for range ticker.C {
 		if err := o.reconcileIpsecHealth(); err != nil {
-			logrus.Warnf("IPsec health reconciliation failed: %v", err)
+			logrus.Warnf("IPsec health reconciliation failed: %s", logsafe.Value(err))
 		}
 	}
 }
@@ -499,7 +500,7 @@ func (o *Overlay) initiateHostWithRetry(host string) {
 	child := "child-" + host
 	for i := 0; i < ipsecInitiateAttempts; i++ {
 		if o.childInstalled(child) {
-			logrus.Infof("CHILD_SA %s already installed", child)
+			logrus.Infof("CHILD_SA %s already installed", logsafe.Value(child))
 			return
 		}
 
@@ -507,22 +508,22 @@ func (o *Overlay) initiateHostWithRetry(host string) {
 		cmd := exec.Command("swanctl", "--initiate", "--child", child, "--timeout", ipsecInitiateTimeout)
 		out, err := cmd.CombinedOutput()
 		if err == nil {
-			logrus.Infof("Initiated CHILD_SA %s", child)
+			logrus.Infof("Initiated CHILD_SA %s", logsafe.Value(child))
 			return
 		}
 
-		logrus.Warnf("Failed to initiate CHILD_SA %s attempt %d: %v: %s", child, i+1, err, strings.TrimSpace(string(out)))
+		logrus.Warnf("Failed to initiate CHILD_SA %s attempt %d: %s: %s", logsafe.Value(child), i+1, logsafe.Value(err), logsafe.Value(strings.TrimSpace(string(out))))
 		time.Sleep(time.Duration(i+1) * 5 * time.Second)
 	}
 
-	logrus.Errorf("Failed to recover CHILD_SA %s after %d attempts, restarting charon", child, ipsecInitiateAttempts)
+	logrus.Errorf("Failed to recover CHILD_SA %s after %d attempts, restarting charon", logsafe.Value(child), ipsecInitiateAttempts)
 	o.restartCharonForRecovery(host)
 }
 
 func (o *Overlay) childInstalled(child string) bool {
 	installed, err := o.installedChildren()
 	if err != nil {
-		logrus.Debugf("Unable to list SAs for %s: %v", child, err)
+		logrus.Debugf("Unable to list SAs for %s: %s", logsafe.Value(child), logsafe.Value(err))
 		return false
 	}
 	return installed[child]
@@ -576,14 +577,14 @@ func (o *Overlay) cleanupConntrack(host string) {
 		trimmed := strings.TrimSpace(string(out))
 		if err == nil {
 			if trimmed != "" {
-				logrus.Infof("Cleared IPsec conntrack for host %s: %s", host, trimmed)
+				logrus.Infof("Cleared IPsec conntrack for host %s: %s", logsafe.Value(host), logsafe.Value(trimmed))
 			}
 			continue
 		}
 		if trimmed != "" {
-			logrus.Debugf("Conntrack cleanup for host %s with args %v: %v: %s", host, filter, err, trimmed)
+			logrus.Debugf("Conntrack cleanup for host %s with args %s: %s: %s", logsafe.Value(host), logsafe.Value(filter), logsafe.Value(err), logsafe.Value(trimmed))
 		} else {
-			logrus.Debugf("Conntrack cleanup for host %s with args %v: %v", host, filter, err)
+			logrus.Debugf("Conntrack cleanup for host %s with args %s: %s", logsafe.Value(host), logsafe.Value(filter), logsafe.Value(err))
 		}
 	}
 }
@@ -591,12 +592,12 @@ func (o *Overlay) cleanupConntrack(host string) {
 func (o *Overlay) restartCharonForRecovery(host string) {
 	pidBytes, err := ioutil.ReadFile(pidFile)
 	if err != nil {
-		logrus.Errorf("Unable to restart charon for host %s recovery, failed to read %s: %v", host, pidFile, err)
+		logrus.Errorf("Unable to restart charon for host %s recovery, failed to read %s: %s", logsafe.Value(host), pidFile, logsafe.Value(err))
 		return
 	}
 
 	pid := strings.TrimSpace(string(pidBytes))
-	logrus.Warnf("Killing charon PID %s to force IPsec recovery for host %s", pid, host)
+	logrus.Warnf("Killing charon PID %s to force IPsec recovery for host %s", logsafe.Value(pid), logsafe.Value(host))
 	o.killCharon(pid)
 }
 
@@ -607,7 +608,7 @@ func (o *Overlay) killCharon(pid string) {
 	}
 
 	if err != nil {
-		logrus.Errorf("Can't kill %s: %v", pid, err)
+		logrus.Errorf("Can't kill %s: %s", logsafe.Value(pid), logsafe.Value(err))
 	}
 }
 
@@ -619,10 +620,10 @@ func (o *Overlay) deletePolicies(policies map[string]netlink.XfrmPolicy) error {
 	}
 	for _, policy := range policies {
 		if err := handle.XfrmPolicyDel(&policy); err != nil {
-			logrus.Errorf("Failed to delete policy: %+v, %v", policy, err)
+			logrus.Errorf("Failed to delete policy: %s, %s", logsafe.Value(policy), logsafe.Value(err))
 			lastErr = err
 		} else {
-			logrus.Infof("Deleted policy: %+v", policy)
+			logrus.Infof("Deleted policy: %s", logsafe.Value(policy))
 		}
 	}
 	return lastErr
@@ -636,10 +637,10 @@ func (o *Overlay) addPolicies(policies map[string]netlink.XfrmPolicy) error {
 	}
 	for _, policy := range policies {
 		if err := handle.XfrmPolicyAdd(&policy); err != nil {
-			logrus.Errorf("Failed to add policy: %+v, %v", policy, err)
+			logrus.Errorf("Failed to add policy: %s, %s", logsafe.Value(policy), logsafe.Value(err))
 			lastErr = err
 		} else {
-			logrus.Infof("Added policy: %+v", policy)
+			logrus.Infof("Added policy: %s", logsafe.Value(policy))
 		}
 	}
 	return lastErr
@@ -715,7 +716,7 @@ func (o *Overlay) ensureOverlayNATBypass() error {
 			continue
 		}
 		if err := o.runCommand(binary, chainArgs...); err != nil {
-			logrus.Debugf("Skipping overlay NAT bypass for %s because CATTLE_NAT_POSTROUTING is unavailable: %v", binary, err)
+			logrus.Debugf("Skipping overlay NAT bypass for %s because CATTLE_NAT_POSTROUTING is unavailable: %s", logsafe.Value(binary), logsafe.Value(err))
 			continue
 		}
 		if err := o.runCommand(binary, args...); err == nil {
@@ -752,7 +753,7 @@ func (o *Overlay) ensureOverlayForwardJump() error {
 		}
 		if err := o.runCommand(binary, chainArgs...); err != nil {
 			if !backend.createIfMissing {
-				logrus.Debugf("Skipping overlay forward jump for %s because CATTLE_FORWARD is unavailable: %v", binary, err)
+				logrus.Debugf("Skipping overlay forward jump for %s because CATTLE_FORWARD is unavailable: %s", logsafe.Value(binary), logsafe.Value(err))
 				continue
 			}
 			if err := o.runCommand(binary, createChainArgs...); err != nil {
@@ -829,7 +830,7 @@ func (o *Overlay) syncHostRoutes(desired map[string]store.Entry) error {
 			firstErr = handleErr(firstErr, err, "Failed to sync IPsec host route %s via %s dev %s: %v", dst, entry.HostIpAddress, dev, err)
 			continue
 		}
-		logrus.Debugf("Synced IPsec host route %s via %s dev %s", dst, entry.HostIpAddress, dev)
+		logrus.Debugf("Synced IPsec host route %s via %s dev %s", logsafe.Value(dst), logsafe.Value(entry.HostIpAddress), logsafe.Value(dev))
 	}
 
 	handle, err := o.xfrmHandle()
@@ -852,7 +853,7 @@ func (o *Overlay) syncHostRoutes(desired map[string]store.Entry) error {
 			firstErr = handleErr(firstErr, err, "Failed to delete stale IPsec host route %s: %v", route.Dst.String(), err)
 			continue
 		}
-		logrus.Infof("Deleted stale IPsec host route %s", route.Dst.String())
+		logrus.Infof("Deleted stale IPsec host route %s", logsafe.Value(route.Dst.String()))
 	}
 
 	return firstErr
@@ -866,7 +867,7 @@ func (o *Overlay) removeHosts() error {
 			if err := o.removeHost(k); err != nil {
 				firstErr = handleErr(firstErr, err, "Failed to add remove connection for host %s: %v", k, err)
 			} else {
-				logrus.Infof("Removed connection for %s", k)
+				logrus.Infof("Removed connection for %s", logsafe.Value(k))
 				delete(o.hosts, k)
 			}
 		}
@@ -883,7 +884,7 @@ func (o *Overlay) removeHost(host string) error {
 	defer client.Close()
 
 	name := "conn-" + strings.Split(host, "/")[0]
-	logrus.Infof("Removing connection for %s", name)
+	logrus.Infof("Removing connection for %s", logsafe.Value(name))
 	return client.UnloadConn(&goStrongswanVici.UnloadConnRequest{
 		Name: name,
 	})
@@ -899,7 +900,7 @@ func getClient() (*goStrongswanVici.ClientConn, error) {
 		}
 
 		if i > 0 {
-			logrus.Errorf("Failed to connect to charon: %v", err)
+			logrus.Errorf("Failed to connect to charon: %s", logsafe.Value(err))
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -921,7 +922,7 @@ func (o *Overlay) loadSharedKey(ipAddress string) error {
 
 	o.keyAttempt[ipAddress] = true
 	if o.keys[ipAddress] == key {
-		logrus.Debugf("Key for %s already loaded", ipAddress)
+		logrus.Debugf("Key for %s already loaded", logsafe.Value(ipAddress))
 		return nil
 	}
 
@@ -939,12 +940,12 @@ func (o *Overlay) loadSharedKey(ipAddress string) error {
 
 	err = client.LoadShared(sharedKey)
 	if err != nil {
-		logrus.Infof("Failed to load pre-shared key for %s: %v", ipAddress, err)
+		logrus.Infof("Failed to load pre-shared key for %s: %s", logsafe.Value(ipAddress), logsafe.Value(err))
 		return err
 	}
 
 	o.keys[ipAddress] = key
-	logrus.Infof("Loaded pre-shared key for %s", ipAddress)
+	logrus.Infof("Loaded pre-shared key for %s", logsafe.Value(ipAddress))
 	return nil
 }
 
@@ -969,7 +970,7 @@ func (o *Overlay) filterAlgos(algos []string) []string {
 func (o *Overlay) addHostConnection(entry store.Entry) error {
 	o.hostAttempt[entry.HostIpAddress] = true
 	if o.hosts[entry.HostIpAddress] == o.templates.Revision() {
-		logrus.Debugf("Connection already loaded for host %s", entry.HostIpAddress)
+		logrus.Debugf("Connection already loaded for host %s", logsafe.Value(entry.HostIpAddress))
 		return nil
 	}
 
@@ -1008,12 +1009,12 @@ func (o *Overlay) addHostConnection(entry store.Entry) error {
 		}
 	}
 	if err != nil {
-		logrus.Errorf("Failed loading connection %s: %v", name, err)
+		logrus.Errorf("Failed loading connection %s: %s", logsafe.Value(name), logsafe.Value(err))
 		return err
 	}
 
 	o.hosts[entry.HostIpAddress] = o.templates.Revision()
-	logrus.Infof("Loaded connection: %v, %v, %v", name, ikeConf.Proposals, childSAConf.ESPProposals)
+	logrus.Infof("Loaded connection %s with %d IKE and %d ESP proposals", logsafe.Value(name), len(ikeConf.Proposals), len(childSAConf.ESPProposals))
 
 	return nil
 }
