@@ -4,13 +4,19 @@ This repository provides the privileged network data plane used by PastureStack.
 
 PastureStack is an independent community effort to preserve, audit, and modernize the Rancher 1.6 ecosystem. It is not affiliated with or endorsed by Rancher Labs or SUSE.
 
-## Runtime image
+## Release status
 
-The Linux AMD64 image is published as:
+The current Catalog coordinate is:
 
 ```text
-ghcr.io/pasturestack/ipsec-vxlan-overlay-network:0.14.27
+ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.26
 ```
+
+This source tree targets the next numeric candidate, `v0.14.27`. It has not
+been published, so the build commands below create a candidate only and do not
+change the current deployment coordinate. The latest GitHub Release is
+`v0.14.25`; the Catalog's `v0.14.26` image therefore remains deployment
+evidence rather than a complete matching Release-and-image publication.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
@@ -26,7 +32,7 @@ Compatibility aliases remain only where the preserved control-plane protocol sti
 
 ## Build and verification
 
-The build is containerized and requires Docker on a Linux AMD64 host:
+The candidate build is containerized and requires Docker on a Linux AMD64 host:
 
 ```sh
 make test
