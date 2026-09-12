@@ -14,8 +14,8 @@ an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
 integration test. That test is not a two-physical-host upgrade or reboot gate.
 Publishing the image alone does not change deployments.
 
-`v0.14.28` tightens host firewall detection. The next release keeps that
-validation but leaves host NAT and forwarding solely to Network Plugin
+`v0.14.28` tightened host firewall detection. The `v0.14.29` candidate keeps
+that validation but leaves host NAT and forwarding solely to Network Plugin
 Manager. Upgrade that manager and verify it is healthy before upgrading this
 router; publishing an image and updating Catalog are separate gates. Check the
 Catalog version lock for the current deployment coordinate.
@@ -46,8 +46,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.28 make build
-TAG=0.14.28 make package
+VERSION_OVERRIDE=0.14.29 make build
+TAG=0.14.29 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.

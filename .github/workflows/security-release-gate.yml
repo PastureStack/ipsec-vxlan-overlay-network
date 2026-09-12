@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_VERSION: 0.14.28
-      VERSION_OVERRIDE: 0.14.28
-      TAG: 0.14.28
+      CANDIDATE_VERSION: 0.14.29
+      VERSION_OVERRIDE: 0.14.29
+      TAG: 0.14.29
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
-      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.28
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.29
       GO_VERSION: 1.27.0
       GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
@@ -271,7 +271,7 @@ jobs:
               impact_statement:$impact
             }] | {
               "@context":"https://openvex.dev/ns/v0.2.0",
-              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.28",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.29",
               author:"PastureStack Security",
               timestamp:$timestamp,
               version:1,
