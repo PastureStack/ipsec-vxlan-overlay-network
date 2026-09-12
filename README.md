@@ -24,6 +24,15 @@ and verify it is healthy before upgrading this router; publishing an image and
 updating Catalog are separate gates. Check the Catalog version lock for the
 current deployment coordinate.
 
+The `v0.14.30` candidate addresses a rolling-upgrade handoff observed on two
+managed hosts: both router generations briefly shared host network port 8111,
+but the old startup guard inspected the holder namespace instead of the host
+namespace where the router actually listens. The new guard checks the target
+namespace before launching the router, waits at most 90 seconds for the prior
+listener to leave, and fails clearly if that cannot be verified. It does not
+change firewall ownership, Docker backend selection, XFRM policy or Catalog
+deployment. Publication and live upgrade remain separate acceptance gates.
+
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
 The release gate rejects Critical/High findings and secrets in the source,
@@ -50,8 +59,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.29 make build
-TAG=0.14.29 make package
+VERSION_OVERRIDE=0.14.30 make build
+TAG=0.14.30 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.

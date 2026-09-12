@@ -33,6 +33,7 @@ host_netns_cmd() {
 }
 
 source /usr/bin/firewall-backend.sh
+source /usr/bin/wait-for-overlay-port.sh
 
 if [ "$run_in_host_netns" = "true" ] && [ -z "$metadata_client_ip" ]; then
     metadata_client_ip=$(ip -4 -o addr show dev eth0 | awk '{split($4, a, "/"); print a[1]; exit}')
@@ -50,10 +51,7 @@ if [ -n "$xfrm_netns_path" ]; then
         'echo 2147483647 > /proc/sys/net/ipv4/xfrm4_gc_thresh' || true
 fi
 
-while curl http://localhost:8111 >/dev/null 2>&1; do
-    echo "Waiting for the previous overlay process to stop"
-    sleep 2
-done
+wait_for_overlay_port_release 45
 
 export CHARON_PID_FILE=/var/run/charon.pid
 rm -f "$CHARON_PID_FILE"
