@@ -39,12 +39,15 @@ that publication is distinct from a completed live rolling-upgrade gate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
-The `v0.14.31` candidate keeps charon running when one peer is temporarily
-unavailable (for example, during a host reboot). The existing 30-second IPsec
-health reconciliation retries that missing CHILD_SA; a stale local peer
-identity still uses its separate explicit charon restart path. This does not
-change firewall ownership or the selected Docker firewall backend. Publication
-and live restart verification remain separate gates.
+The published `v0.14.31` image (manifest
+`sha256:4d8a51e04bdd27fea3cb2949158103d43e0d2470907c328f76f7a0c6ccec8608`,
+source `22f486cbcbcf92bda91fce555268226eddd723ba`) keeps charon running
+when one peer is temporarily unavailable (for example, during a host reboot).
+The existing 30-second IPsec health reconciliation retries that missing
+CHILD_SA; a stale local peer identity still uses its separate explicit charon
+restart path. This does not change firewall ownership or the selected Docker
+firewall backend. Catalog pinning and live peer-restart verification remain
+separate gates.
 
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
