@@ -6,21 +6,17 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-The current Catalog coordinate is:
-
-```text
-ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.26
-```
-
-The `v0.14.27` source and image have been published with manifest digest
+The prior `v0.14.27` source and image were published with manifest digest
 `sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
-and release SBOM/provenance attestations. The current Catalog still uses
-`v0.14.26`; its separate `v0.14.27` template integration and host lifecycle
-gate remain pending. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, the
+and release SBOM/provenance attestations. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, that
 published image selected native nftables without modifying host rules, rejected
 an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
 integration test. That test is not a two-physical-host upgrade or reboot gate.
 Publishing the image alone does not change deployments.
+
+`v0.14.28` tightens host firewall detection. Publishing its image and updating
+Catalog are separate gates; source changes alone do not change a deployment.
+Check the Catalog version lock for the current deployment coordinate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
@@ -48,8 +44,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.27 make build
-TAG=0.14.27 make package
+VERSION_OVERRIDE=0.14.28 make build
+TAG=0.14.28 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
@@ -58,7 +54,22 @@ The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names befor
 
 ## Host firewall backends
 
-The catalog IPsec `overlay-router` runs in the host network namespace. Its startup script resolves `PASTURESTACK_FIREWALL_BACKEND=auto` once from the host's live Docker firewall tables and passes the selected value to route synchronization. Operators may explicitly choose `nftables`, `iptables-nft`, or `iptables-legacy`; a mismatched selection fails rather than modifying another backend. The native path never invokes `iptables-legacy` and does not write any host firewall rule. The active network manager is the sole owner of overlay forwarding marks and NAT; Docker's native bridge firewall must accept mark `0x1068/0x1068`. See [COMPATIBILITY.md](COMPATIBILITY.md) for the boundary and migration notes.
+The Catalog IPsec `overlay-router` runs in the host network namespace. With
+`v0.14.28`, `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
+firewall driver from the mounted Docker socket and verifies that exactly one
+matching Docker-owned firewall backend has live hooks. An explicit selection
+is verified the same way; stale, mixed or mismatched Docker rules, reachable
+old platform hooks in the opposite frontend, or an opposite `FORWARD DROP`
+policy stop startup before the router writes any host NAT rule. Orphan chains
+without a live path from a built-in chain are not treated as active hooks.
+The router only sends `GET /info` to the
+Docker API, but mounting the Unix socket is a privileged capability: `:ro` on
+the mount does **not** restrict API writes. The router already requires
+privileged access and host PID access; operators must protect this container
+accordingly. The native path does not write any host firewall rule. The active
+network manager owns overlay forwarding marks and NAT, and Docker's native
+bridge firewall must accept mark `0x1068/0x1068`. See
+[COMPATIBILITY.md](COMPATIBILITY.md) for the boundary and migration notes.
 
 ## Origin and licensing
 
