@@ -485,15 +485,73 @@ func (o *Overlay) reconcileIpsecHealth() error {
 			missingHosts[host] = true
 		}
 	}
-	if len(missingHosts) == 0 {
-		return nil
+	if len(missingHosts) > 0 {
+		logrus.Warnf("Detected %d missing IPsec CHILD_SA(s), scheduling recovery", len(missingHosts))
+		o.Lock()
+		o.scheduleInitiatesLocked(missingHosts, 0)
+		o.Unlock()
+	}
+	return o.reapDeletingDuplicateSAs(expectedHosts)
+}
+
+// A peer may disappear while strongSwan is sending DELETE for a replaced SA.
+// Once its replacement has an installed CHILD_SA, remove only the old local SA
+// by unique ID; never terminate a connection by name or touch unrelated peers.
+func (o *Overlay) reapDeletingDuplicateSAs(expectedHosts map[string]bool) error {
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	sas, err := client.ListSas("", "")
+	if err != nil {
+		return err
+	}
+	for _, id := range deletingDuplicateIKEIDs(sas, expectedHosts) {
+		response, err := client.Request("terminate", map[string]interface{}{
+			"ike-id":  id,
+			"force":   "yes",
+			"timeout": "1000",
+		})
+		if err != nil {
+			return err
+		}
+		if response["success"] != "yes" && response["matches"] != "0" {
+			return fmt.Errorf("terminate stale IKE_SA %s: %v", id, response["errmsg"])
+		}
+		logrus.Infof("Removed stale duplicate IKE_SA %s", logsafe.Value(id))
+	}
+	return nil
+}
+
+func deletingDuplicateIKEIDs(sas []map[string]goStrongswanVici.IkeSa, expectedHosts map[string]bool) []string {
+	healthy := map[string]bool{}
+	for _, saMap := range sas {
+		for name, sa := range saMap {
+			if !expectedHosts[sa.Remote_host] || name != "conn-"+sa.Remote_host || sa.State != "ESTABLISHED" {
+				continue
+			}
+			for childName, child := range sa.Child_sas {
+				if child.State == "INSTALLED" && canonicalChildName(childName) == "child-"+sa.Remote_host {
+					healthy[sa.Remote_host] = true
+				}
+			}
+		}
 	}
 
-	logrus.Warnf("Detected %d missing IPsec CHILD_SA(s), scheduling recovery", len(missingHosts))
-	o.Lock()
-	o.scheduleInitiatesLocked(missingHosts, 0)
-	o.Unlock()
-	return nil
+	var ids []string
+	for _, saMap := range sas {
+		for name, sa := range saMap {
+			if !healthy[sa.Remote_host] || name != "conn-"+sa.Remote_host || sa.State != "DELETING" {
+				continue
+			}
+			if id, err := strconv.ParseUint(sa.Uniqueid, 10, 32); err == nil && id > 0 {
+				ids = append(ids, sa.Uniqueid)
+			}
+		}
+	}
+	return ids
 }
 
 func (o *Overlay) initiateHostWithRetry(host string) {
@@ -926,9 +984,7 @@ func (o *Overlay) addHostConnection(entry store.Entry) error {
 	// Loading connections doesn't seem to be very reliable, can't get info
 	// why it's failing though.
 	for i := 0; i < 3; i++ {
-		err = client.LoadConn(&map[string]goStrongswanVici.IKEConf{
-			name: ikeConf,
-		})
+		err = loadIKEConnection(client, name, ikeConf)
 		if err == nil {
 			break
 		}
@@ -941,6 +997,21 @@ func (o *Overlay) addHostConnection(entry store.Entry) error {
 	o.hosts[entry.HostIpAddress] = o.templates.Revision()
 	logrus.Infof("Loaded connection %s with %d IKE and %d ESP proposals", logsafe.Value(name), len(ikeConf.Proposals), len(childSAConf.ESPProposals))
 
+	return nil
+}
+
+func loadIKEConnection(client *goStrongswanVici.ClientConn, name string, conf IKEConnectionConfig) error {
+	request := &map[string]interface{}{}
+	if err := goStrongswanVici.ConvertToGeneral(&map[string]IKEConnectionConfig{name: conf}, request); err != nil {
+		return fmt.Errorf("encode IKE connection: %w", err)
+	}
+	response, err := client.Request("load-conn", *request)
+	if err != nil {
+		return err
+	}
+	if response["success"] != "yes" {
+		return fmt.Errorf("load IKE connection: %v", response["errmsg"])
+	}
 	return nil
 }
 

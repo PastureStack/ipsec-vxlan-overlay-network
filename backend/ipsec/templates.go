@@ -23,6 +23,7 @@ var (
 		"local_addrs": [],
 		"proposals": ["aes128gcm16-sha256-modp2048", "aes-sha1-modp2048"],
 		"encap": "yes",
+		"unique": "replace",
 		"local": {
 			"auth": "psk"
 		},
@@ -48,13 +49,21 @@ type Templates struct {
 	revision            string
 }
 
+// IKEConnectionConfig extends the VICI library's typed config with strongSwan's
+// per-connection uniqueness policy. The library does not expose this option;
+// embedding preserves its existing field conversion and custom IKE templates.
+type IKEConnectionConfig struct {
+	goStrongswanVici.IKEConf
+	Unique string `json:"unique,omitempty"`
+}
+
 func (t *Templates) Reload() error {
 	var err error
 	t.ikeConfTemplate, err = t.loadBytes(ikeConfName, defaultIkeConf)
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(t.ikeConfTemplate, &goStrongswanVici.IKEConf{}); err != nil {
+	if err := json.Unmarshal(t.ikeConfTemplate, &IKEConnectionConfig{}); err != nil {
 		logrus.Errorf("Failed to unmarshal IKE config: %s", logsafe.Value(err))
 		return err
 	}
@@ -80,10 +89,15 @@ func (t *Templates) Revision() string {
 	return t.revision
 }
 
-func (t *Templates) NewIkeConf() goStrongswanVici.IKEConf {
-	var resp goStrongswanVici.IKEConf
+func (t *Templates) NewIkeConf() IKEConnectionConfig {
+	var resp IKEConnectionConfig
 	// Should never fail because we checked this in Reload()
 	json.Unmarshal(t.ikeConfTemplate, &resp)
+	// Existing custom ike.conf files may predate this option. Keep the safe
+	// per-peer default unless the operator explicitly selected another policy.
+	if resp.Unique == "" {
+		resp.Unique = "replace"
+	}
 	return resp
 }
 
