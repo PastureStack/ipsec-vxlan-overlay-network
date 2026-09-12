@@ -24,14 +24,18 @@ and verify it is healthy before upgrading this router; publishing an image and
 updating Catalog are separate gates. Check the Catalog version lock for the
 current deployment coordinate.
 
-The `v0.14.30` candidate addresses a rolling-upgrade handoff observed on two
+The published `v0.14.30` image (manifest
+`sha256:326cec5fa786dbb18df68d10653b3cef1af4785cbb0897aecb616ffcec7914ca`,
+source `8b9e40b88c027c0c3c76720f8077a5a82aa63473`) addresses a
+rolling-upgrade handoff observed on two
 managed hosts: both router generations briefly shared host network port 8111,
 but the old startup guard inspected the holder namespace instead of the host
 namespace where the router actually listens. The new guard checks the target
 namespace before launching the router, waits at most 90 seconds for the prior
 listener to leave, and fails clearly if that cannot be verified. It does not
-change firewall ownership, Docker backend selection, XFRM policy or Catalog
-deployment. Publication and live upgrade remain separate acceptance gates.
+change firewall ownership, Docker backend selection, or XFRM policy. Catalog
+Templates `v0.3.4` publishes this image in IPsec Overlay template version `5`;
+that publication is distinct from a completed live rolling-upgrade gate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
