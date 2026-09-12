@@ -20,6 +20,13 @@ evidence rather than a complete matching Release-and-image publication.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
+The release gate rejects Critical/High findings and secrets in the source,
+shipped binaries, and runtime image. It scans the disposable Dapper builder
+separately and retains its raw findings; only exact, already-reviewed
+`linux-libc-dev` header findings receive builder-scoped VEX. New builder
+findings remain visible and are not evidence that the shipped runtime is safe.
+The Dapper image and its kernel headers are not included in the release image.
+
 Preferred commands inside the image are:
 
 - `start-ipsec.sh` — start the IPsec overlay router.

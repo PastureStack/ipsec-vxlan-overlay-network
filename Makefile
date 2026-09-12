@@ -3,7 +3,7 @@ TARGETS := $(shell ls scripts)
 
 DAPPER_IMAGE ?= pasturestack-overlay-network-dapper:ubuntu26
 DAPPER_HOST_ARCH ?= amd64
-DOCKER_VERSION ?= 29.7.2
+DOCKER_VERSION ?= 29.8.0
 DOCKER_BUILD_NETWORK ?= host
 DAPPER_SOURCE ?= /go/src/github.com/PastureStack/ipsec-vxlan-overlay-network
 
