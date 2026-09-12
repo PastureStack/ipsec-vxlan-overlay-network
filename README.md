@@ -14,11 +14,15 @@ an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
 integration test. That test is not a two-physical-host upgrade or reboot gate.
 Publishing the image alone does not change deployments.
 
-`v0.14.28` tightened host firewall detection. The `v0.14.29` candidate keeps
-that validation but leaves host NAT and forwarding solely to Network Plugin
-Manager. Upgrade that manager and verify it is healthy before upgrading this
-router; publishing an image and updating Catalog are separate gates. Check the
-Catalog version lock for the current deployment coordinate.
+`v0.14.28` tightened host firewall detection. Published `v0.14.29` keeps that
+validation but leaves host NAT, forwarding, and host ports solely to Network
+Plugin Manager. The official image manifest is
+`sha256:e65921d3ea7ec3a3582400b0bc2ca3297484375bad42dd61bbf74b1201c18ad1`
+from source commit `276f8fee8ceb64a216a2907fdb0c60394296a208`; the same-commit
+security and CodeQL gates and the release rebuild passed. Upgrade the manager
+and verify it is healthy before upgrading this router; publishing an image and
+updating Catalog are separate gates. Check the Catalog version lock for the
+current deployment coordinate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
@@ -57,7 +61,7 @@ The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names befor
 ## Host firewall backends
 
 The Catalog IPsec `overlay-router` runs in the host network namespace. With
-`v0.14.28`, `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
+`v0.14.29`, `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
 firewall driver from the mounted Docker socket and verifies that exactly one
 matching Docker-owned firewall backend has live hooks. An explicit selection
 is verified the same way; stale, mixed or mismatched Docker rules, reachable
