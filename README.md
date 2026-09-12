@@ -20,6 +20,13 @@ evidence rather than a complete matching Release-and-image publication.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
+The release gate rejects Critical/High findings and secrets in the source,
+shipped binaries, and runtime image. It scans the disposable Dapper builder
+separately and retains its raw findings; only exact, already-reviewed
+`linux-libc-dev` header findings receive builder-scoped VEX. New builder
+findings remain visible and are not evidence that the shipped runtime is safe.
+The Dapper image and its kernel headers are not included in the release image.
+
 Preferred commands inside the image are:
 
 - `start-ipsec.sh` — start the IPsec overlay router.
@@ -44,6 +51,10 @@ TAG=0.14.27 make package
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
 
 The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names before comparing them with configured peer names. This prevents a VICI unique-ID suffix from being misclassified as a missing SA during a rolling replacement.
+
+## Host firewall backends
+
+The catalog IPsec `overlay-router` runs in the host network namespace. Its startup script resolves `PASTURESTACK_FIREWALL_BACKEND=auto` once from the host's live Docker firewall tables and passes the selected value to route synchronization. Operators may explicitly choose `nftables`, `iptables-nft`, or `iptables-legacy`; a mismatched selection fails rather than modifying another backend. The native path never invokes `iptables-legacy` and does not write any host firewall rule. The active network manager is the sole owner of overlay forwarding marks and NAT; Docker's native bridge firewall must accept mark `0x1068/0x1068`. See [COMPATIBILITY.md](COMPATIBILITY.md) for the boundary and migration notes.
 
 ## Origin and licensing
 

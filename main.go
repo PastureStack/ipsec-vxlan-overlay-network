@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -36,6 +37,7 @@ const (
 	xfrmTunnelSourceFlag  = "xfrm-tunnel-source"
 	xfrmNetnsPathFlag     = "xfrm-netns-path"
 	syncHostRoutesFlag    = "sync-host-routes"
+	firewallBackendFlag   = "firewall-backend"
 	xfrmTunnelSourceHost  = "host"
 	xfrmTunnelSourceLocal = "local"
 )
@@ -130,6 +132,11 @@ func main() {
 				Sources: cli.EnvVars("PASTURESTACK_NETWORK_SYNC_HOST_ROUTES", "RANCHER_NET_SYNC_HOST_ROUTES"),
 			},
 			&cli.StringFlag{
+				Name:    firewallBackendFlag,
+				Usage:   "Resolved host firewall backend: nftables, iptables-nft or iptables-legacy",
+				Sources: cli.EnvVars("PASTURESTACK_FIREWALL_BACKEND"),
+			},
+			&cli.StringFlag{
 				Name:    backendFlag,
 				Value:   backendNameIpsec,
 				Usage:   "backend to use: ipsec/vxlan",
@@ -198,6 +205,11 @@ func appMain(ctx *cli.Command) error {
 		logrus.Fatalf("Invalid backend specified")
 	}
 	logrus.Infof("Using backend: %v", backendToUse)
+	if backendToUse == backendNameIpsec {
+		if err := validateFirewallBackend(ctx.Bool(syncHostRoutesFlag), ctx.String(firewallBackendFlag)); err != nil {
+			return err
+		}
+	}
 
 	useMetadata := ctx.Bool(metadataFlag)
 	logrus.Infof("Using metadata: %v", useMetadata)
@@ -237,6 +249,7 @@ func appMain(ctx *cli.Command) error {
 		ipsecOverlay := ipsec.NewOverlay(ctx.String("ipsec-config"), db)
 		ipsecOverlay.NetnsPath = ctx.String(xfrmNetnsPathFlag)
 		ipsecOverlay.SyncHostRoutes = ctx.Bool(syncHostRoutesFlag)
+		ipsecOverlay.FirewallBackend = ctx.String(firewallBackendFlag)
 		switch ctx.String(xfrmTunnelSourceFlag) {
 		case xfrmTunnelSourceLocal:
 			ipsecOverlay.UseHostTunnelSource = false
@@ -285,4 +298,16 @@ func appMain(ctx *cli.Command) error {
 	}
 
 	return <-done
+}
+
+func validateFirewallBackend(syncHostRoutes bool, mode string) error {
+	if !syncHostRoutes {
+		return nil
+	}
+	switch mode {
+	case "nftables", "iptables-nft", "iptables-legacy":
+		return nil
+	default:
+		return fmt.Errorf("host route synchronization requires a resolved firewall backend, got %q", mode)
+	}
 }

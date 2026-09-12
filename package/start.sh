@@ -32,14 +32,7 @@ host_netns_cmd() {
     fi
 }
 
-ensure_overlay_nat_bypass() {
-    host_netns_cmd iptables -t nat -C CATTLE_NAT_POSTROUTING -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT 2>/dev/null || \
-        host_netns_cmd iptables -t nat -I CATTLE_NAT_POSTROUTING 1 -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT
-    if host_netns_cmd iptables-legacy -t nat -S CATTLE_NAT_POSTROUTING >/dev/null 2>&1; then
-        host_netns_cmd iptables-legacy -t nat -C CATTLE_NAT_POSTROUTING -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT 2>/dev/null || \
-            host_netns_cmd iptables-legacy -t nat -I CATTLE_NAT_POSTROUTING 1 -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT
-    fi
-}
+source /usr/bin/firewall-backend.sh
 
 if [ "$run_in_host_netns" = "true" ] && [ -z "$metadata_client_ip" ]; then
     metadata_client_ip=$(ip -4 -o addr show dev eth0 | awk '{split($4, a, "/"); print a[1]; exit}')
@@ -102,15 +95,10 @@ if [ -z "$OUT_IFACE" ] || [ -z "$LOCAL_IP" ]; then
     echo "Unable to determine the host route used by the overlay" >&2
     exit 1
 fi
-if [ -n "$GATEWAY" ]; then
-    host_netns_cmd iptables -t nat -C POSTROUTING -o "$OUT_IFACE" -s "$GATEWAY" -j MASQUERADE 2>/dev/null || \
-        host_netns_cmd iptables -t nat -I POSTROUTING -o "$OUT_IFACE" -s "$GATEWAY" -j MASQUERADE
-fi
-
 if [ "$run_in_host_netns" = "true" ]; then
     export PASTURESTACK_NETWORK_SYNC_HOST_ROUTES=${PASTURESTACK_NETWORK_SYNC_HOST_ROUTES:-${RANCHER_NET_SYNC_HOST_ROUTES:-true}}
-    ensure_overlay_nat_bypass
 fi
+configure_overlay_firewall "$run_in_host_netns" "$GATEWAY" "$OUT_IFACE"
 
 cmd=(
     ipsec-vxlan-overlay-network

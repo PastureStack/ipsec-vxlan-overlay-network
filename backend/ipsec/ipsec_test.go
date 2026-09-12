@@ -48,7 +48,7 @@ exit 1
 	defer os.Setenv("PATH", oldPath)
 	defer os.Setenv("IPTABLES_LOG", oldLog)
 
-	if err := (&Overlay{}).ensureOverlayNATBypass(); err != nil {
+	if err := (&Overlay{FirewallBackend: "iptables-legacy"}).ensureOverlayNATBypass(); err != nil {
 		t.Fatalf("expected missing iptables-legacy chain to be skipped, got %v", err)
 	}
 
@@ -57,11 +57,11 @@ exit 1
 		t.Fatal(err)
 	}
 	commands := string(commandsBytes)
-	if !strings.Contains(commands, "iptables -t nat -I CATTLE_NAT_POSTROUTING 1") {
-		t.Fatalf("expected primary iptables insert, got commands:\n%s", commands)
-	}
 	if strings.Contains(commands, "iptables-legacy -t nat -I CATTLE_NAT_POSTROUTING 1") {
 		t.Fatalf("expected missing iptables-legacy chain to skip insert, got commands:\n%s", commands)
+	}
+	if strings.Contains(commands, "iptables -t nat -S") {
+		t.Fatalf("expected no other frontend probe, got commands:\n%s", commands)
 	}
 }
 
@@ -108,7 +108,7 @@ exit 1
 	defer os.Setenv("PATH", oldPath)
 	defer os.Setenv("IPTABLES_LOG", oldLog)
 
-	if err := (&Overlay{}).ensureOverlayNATBypass(); err != nil {
+	if err := (&Overlay{FirewallBackend: "iptables-nft"}).ensureOverlayNATBypass(); err != nil {
 		t.Fatalf("expected explicit iptables-nft backend to handle nft-owned chain, got %v", err)
 	}
 
@@ -177,7 +177,7 @@ exit 1
 	defer os.Setenv("PATH", oldPath)
 	defer os.Setenv("IPTABLES_LOG", oldLog)
 
-	if err := (&Overlay{}).ensureOverlayForwardJump(); err != nil {
+	if err := (&Overlay{FirewallBackend: "iptables-nft"}).ensureOverlayForwardJump(); err != nil {
 		t.Fatalf("expected explicit iptables-nft backend to handle nft-owned forward chain, got %v", err)
 	}
 
@@ -252,7 +252,7 @@ exit 1
 	defer os.Setenv("PATH", oldPath)
 	defer os.Setenv("IPTABLES_LOG", oldLog)
 
-	if err := (&Overlay{}).ensureOverlayForwardJump(); err != nil {
+	if err := (&Overlay{FirewallBackend: "iptables-nft"}).ensureOverlayForwardJump(); err != nil {
 		t.Fatalf("expected missing active backend chain to be created, got %v", err)
 	}
 
@@ -262,16 +262,14 @@ exit 1
 	}
 	commands := string(commandsBytes)
 	for _, expected := range []string{
-		"iptables -N CATTLE_FORWARD",
-		"iptables -I CATTLE_FORWARD 1 -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT",
-		"iptables -I FORWARD 1 -j CATTLE_FORWARD",
+		"iptables-nft -S CATTLE_FORWARD",
 	} {
 		if !strings.Contains(commands, expected) {
 			t.Fatalf("expected %q, got commands:\n%s", expected, commands)
 		}
 	}
-	if strings.Contains(commands, "iptables-legacy -N CATTLE_FORWARD") {
-		t.Fatalf("expected missing optional legacy backend to be skipped, got commands:\n%s", commands)
+	if strings.Contains(commands, "iptables-legacy -S") || strings.Contains(commands, "iptables -S") {
+		t.Fatalf("expected only selected backend to be touched, got commands:\n%s", commands)
 	}
 }
 
@@ -284,6 +282,65 @@ func TestCleanIP(t *testing.T) {
 		if actual := cleanIP(input); actual != expected {
 			t.Errorf("cleanIP(%q) = %q, want %q", input, actual, expected)
 		}
+	}
+}
+
+func TestNativeOverlayLeavesHostFirewallToManager(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "commands.log")
+	script := `#!/bin/sh
+echo "$0 $*" >> "$FIREWALL_LOG"
+exit 1
+`
+	for _, binary := range []string{"nft", "iptables", "iptables-nft", "iptables-legacy"} {
+		if err := os.WriteFile(filepath.Join(tmpDir, binary), []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FIREWALL_LOG", logFile)
+	o := &Overlay{FirewallBackend: "nftables"}
+	if err := o.ensureOverlayNATBypass(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.ensureOverlayForwardJump(); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(logFile); !os.IsNotExist(err) {
+		t.Fatalf("native overlay must not invoke firewall commands: log=%q err=%v", data, err)
+	}
+}
+
+func TestUnresolvedFirewallBackendFailsClosed(t *testing.T) {
+	if err := (&Overlay{}).ensureOverlayNATBypass(); err == nil {
+		t.Fatal("expected missing firewall backend to fail closed")
+	}
+}
+
+func TestExplicitLegacySkipsMissingForwardChainWithoutOtherFrontends(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "commands.log")
+	script := `#!/bin/sh
+echo "$*" >> "$IPTABLES_LOG"
+case "$*" in
+  "-S CATTLE_FORWARD"|"-C CATTLE_FORWARD "*|"-C FORWARD "*) exit 1 ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "iptables-legacy"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("IPTABLES_LOG", logFile)
+	if err := (&Overlay{FirewallBackend: "iptables-legacy"}).ensureOverlayForwardJump(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "-S CATTLE_FORWARD" {
+		t.Fatalf("missing optional legacy chain must be skipped without other mutations: %s", data)
 	}
 }
 

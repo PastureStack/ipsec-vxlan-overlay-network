@@ -55,6 +55,7 @@ type Overlay struct {
 	// the tunnel endpoints to be the host agent IP in host-netns XFRM mode.
 	UseHostTunnelSource bool
 	SyncHostRoutes      bool
+	FirewallBackend     string
 }
 
 func NewOverlay(configDir string, db store.Store) *Overlay {
@@ -706,31 +707,40 @@ func (o *Overlay) runCommand(name string, args ...string) error {
 }
 
 func (o *Overlay) ensureOverlayNATBypass() error {
+	if o.FirewallBackend == "nftables" {
+		// The native network manager excludes overlay destinations from its
+		// own NAT rule. An ACCEPT verdict in another nftables base chain would
+		// not exempt packets from a later NAT base chain.
+		return nil
+	}
+	binary, err := o.xtablesBinary()
+	if err != nil {
+		return err
+	}
 	chainArgs := []string{"-t", "nat", "-S", "CATTLE_NAT_POSTROUTING"}
 	args := []string{"-t", "nat", "-C", "CATTLE_NAT_POSTROUTING", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
 	insertArgs := []string{"-t", "nat", "-I", "CATTLE_NAT_POSTROUTING", "1", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
-
-	var firstErr error
-	for _, binary := range []string{"iptables", "iptables-nft", "iptables-legacy"} {
-		if _, err := exec.LookPath(binary); err != nil {
-			continue
-		}
-		if err := o.runCommand(binary, chainArgs...); err != nil {
-			logrus.Debugf("Skipping overlay NAT bypass for %s because CATTLE_NAT_POSTROUTING is unavailable: %s", logsafe.Value(binary), logsafe.Value(err))
-			continue
-		}
-		if err := o.runCommand(binary, args...); err == nil {
-			continue
-		}
-		if err := o.runCommand(binary, insertArgs...); err != nil {
-			firstErr = handleErr(firstErr, err, "Failed to ensure overlay NAT bypass with %s: %v", binary, err)
-		}
+	if err := o.runCommand(binary, chainArgs...); err != nil {
+		logrus.Debugf("Skipping overlay NAT bypass for %s because CATTLE_NAT_POSTROUTING is unavailable: %s", logsafe.Value(binary), logsafe.Value(err))
+		return nil
 	}
-
-	return firstErr
+	if err := o.runCommand(binary, args...); err == nil {
+		return nil
+	}
+	return o.runCommand(binary, insertArgs...)
 }
 
 func (o *Overlay) ensureOverlayForwardJump() error {
+	if o.FirewallBackend == "nftables" {
+		// The native network manager is the sole owner of overlay forwarding
+		// marks and Docker's bridge firewall integration. Multiple routers may
+		// share a host; none may replace the manager's current subnet set.
+		return nil
+	}
+	binary, err := o.xtablesBinary()
+	if err != nil {
+		return err
+	}
 	chainArgs := []string{"-S", "CATTLE_FORWARD"}
 	createChainArgs := []string{"-N", "CATTLE_FORWARD"}
 	acceptArgs := []string{"-C", "CATTLE_FORWARD", "-s", "10.42.0.0/16", "-d", "10.42.0.0/16", "-j", "ACCEPT"}
@@ -738,43 +748,35 @@ func (o *Overlay) ensureOverlayForwardJump() error {
 	jumpArgs := []string{"-C", "FORWARD", "-j", "CATTLE_FORWARD"}
 	insertJumpArgs := []string{"-I", "FORWARD", "1", "-j", "CATTLE_FORWARD"}
 
-	var firstErr error
-	for _, backend := range []struct {
-		binary          string
-		createIfMissing bool
-	}{
-		{binary: "iptables", createIfMissing: true},
-		{binary: "iptables-nft", createIfMissing: true},
-		{binary: "iptables-legacy"},
-	} {
-		binary := backend.binary
-		if _, err := exec.LookPath(binary); err != nil {
-			continue
+	if err := o.runCommand(binary, chainArgs...); err != nil {
+		if binary == "iptables-legacy" {
+			// Preserve the old optional legacy-chain contract: only the
+			// manager creates this chain on a legacy host.
+			logrus.Debugf("Skipping overlay forward jump for %s because CATTLE_FORWARD is unavailable: %s", logsafe.Value(binary), logsafe.Value(err))
+			return nil
 		}
-		if err := o.runCommand(binary, chainArgs...); err != nil {
-			if !backend.createIfMissing {
-				logrus.Debugf("Skipping overlay forward jump for %s because CATTLE_FORWARD is unavailable: %s", logsafe.Value(binary), logsafe.Value(err))
-				continue
-			}
-			if err := o.runCommand(binary, createChainArgs...); err != nil {
-				firstErr = handleErr(firstErr, err, "Failed to create overlay forward chain with %s: %v", binary, err)
-				continue
-			}
-		}
-		if err := o.runCommand(binary, acceptArgs...); err != nil {
-			if err := o.runCommand(binary, insertAcceptArgs...); err != nil {
-				firstErr = handleErr(firstErr, err, "Failed to ensure overlay forward accept with %s: %v", binary, err)
-			}
-		}
-		if err := o.runCommand(binary, jumpArgs...); err == nil {
-			continue
-		}
-		if err := o.runCommand(binary, insertJumpArgs...); err != nil {
-			firstErr = handleErr(firstErr, err, "Failed to ensure overlay forward jump with %s: %v", binary, err)
+		if err := o.runCommand(binary, createChainArgs...); err != nil {
+			return err
 		}
 	}
+	if err := o.runCommand(binary, acceptArgs...); err != nil {
+		if err := o.runCommand(binary, insertAcceptArgs...); err != nil {
+			return err
+		}
+	}
+	if err := o.runCommand(binary, jumpArgs...); err == nil {
+		return nil
+	}
+	return o.runCommand(binary, insertJumpArgs...)
+}
 
-	return firstErr
+func (o *Overlay) xtablesBinary() (string, error) {
+	switch o.FirewallBackend {
+	case "iptables-nft", "iptables-legacy":
+		return o.FirewallBackend, nil
+	default:
+		return "", fmt.Errorf("host firewall backend must be resolved before syncing routes: %q", o.FirewallBackend)
+	}
 }
 
 func (o *Overlay) routeDevice(remoteHostIP net.IP) (string, error) {
