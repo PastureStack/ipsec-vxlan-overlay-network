@@ -56,6 +56,13 @@ case " ${commands[*]} " in
 esac
 
 commands=()
+TEST_DOCKER_BACKEND=iptables-legacy
+PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
+resolve_firewall_backend
+[ "$PASTURESTACK_FIREWALL_BACKEND" = iptables-legacy ]
+[[ " ${commands[*]} " == *"iptables-legacy -t nat -S DOCKER"* ]]
+
+commands=()
 TEST_DOCKER_BACKEND=nftables
 PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
 if resolve_firewall_backend; then
