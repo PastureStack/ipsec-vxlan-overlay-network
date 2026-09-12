@@ -45,6 +45,10 @@ The package build downloads dependencies anonymously, verifies every standalone 
 
 The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names before comparing them with configured peer names. This prevents a VICI unique-ID suffix from being misclassified as a missing SA during a rolling replacement.
 
+## Host firewall backends
+
+The catalog IPsec `overlay-router` runs in the host network namespace. Its startup script resolves `PASTURESTACK_FIREWALL_BACKEND=auto` once from the host's live Docker firewall tables and passes the selected value to route synchronization. Operators may explicitly choose `nftables`, `iptables-nft`, or `iptables-legacy`; a mismatched selection fails rather than modifying another backend. The native path never invokes `iptables-legacy` and does not write any host firewall rule. The active network manager is the sole owner of overlay forwarding marks and NAT; Docker's native bridge firewall must accept mark `0x1068/0x1068`. See [COMPATIBILITY.md](COMPATIBILITY.md) for the boundary and migration notes.
+
 ## Origin and licensing
 
 The official upstream history and original copyright notices are preserved. See [ORIGIN.md](ORIGIN.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [LICENSE](LICENSE) before redistributing this source or its image.

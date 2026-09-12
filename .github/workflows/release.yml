@@ -1,0 +1,347 @@
+name: Release IPsec overlay
+
+# A release is dispatched from main only after an annotated v0.14.27 tag and
+# successful, same-commit Security release gate and CodeQL verification runs.
+# GHCR, registry attestations, and GitHub Releases are not an atomic transaction.
+# All source/product/runtime gates precede the image push. A later failure may
+# leave a published image; never delete or overwrite that tag automatically.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated, numeric v0.14.27 tag at main HEAD
+        required: true
+        type: choice
+        options:
+          - v0.14.27
+      security_run_id:
+        description: Successful same-SHA Security release gate run ID
+        required: true
+        type: string
+      codeql_run_id:
+        description: Successful same-SHA CodeQL verification run ID
+        required: true
+        type: string
+      resume_digest:
+        description: Existing image digest from a partial prior run; leave empty on first publish
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: ipsec-vxlan-overlay-release-v0.14.27
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SECURITY_RUN_ID: ${{ inputs.security_run_id }}
+      CODEQL_RUN_ID: ${{ inputs.codeql_run_id }}
+      RESUME_DIGEST: ${{ inputs.resume_digest }}
+      GH_TOKEN: ${{ github.token }}
+      SERVICE_IMAGE: ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.27
+      LOCAL_IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.27
+      TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+      GOFLAGS: -mod=vendor
+      GOWORK: off
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out the annotated release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag, main HEAD, and exact successful gate runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$RELEASE_TAG" = v0.14.27
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$SECURITY_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$CODEQL_RUN_ID" =~ ^[0-9]+$ ]]
+          if [ -n "$RESUME_DIGEST" ]; then
+            [[ "$RESUME_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          fi
+          test -z "$(git status --porcelain)"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$(git rev-list -n 1 "$RELEASE_TAG")"
+          test "$source_sha" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$source_sha"
+          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+          test "$(jq -r '.object.type' <<<"$tag_ref")" = tag
+          tag_object_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
+          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha")"
+          test "$(jq -r '.object.type' <<<"$tag_object")" = commit
+          test "$(jq -r '.object.sha' <<<"$tag_object")" = "$source_sha"
+          security_workflow="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/security-release-gate.yml" --jq .id)"
+          codeql_workflow="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/codeql-verification.yml" --jq .id)"
+          for entry in "$SECURITY_RUN_ID:$security_workflow" "$CODEQL_RUN_ID:$codeql_workflow"; do
+            run_id="${entry%%:*}"
+            workflow_id="${entry#*:}"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" |
+              jq -e --arg sha "$source_sha" --arg repo "$GITHUB_REPOSITORY" \
+                --argjson workflow "$workflow_id" \
+                '.workflow_id == $workflow and .head_sha == $sha and
+                 .head_repository.full_name == $repo and .status == "completed" and
+                 .conclusion == "success" and
+                 (.event == "push" or .event == "workflow_dispatch")' >/dev/null
+          done
+          printf 'SOURCE_SHA=%s\nTAG_OBJECT_SHA=%s\n' "$source_sha" "$tag_object_sha" >> "$GITHUB_ENV"
+
+      - name: Verify immutable security evidence and source checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$SECURITY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "ipsec-vxlan-overlay-network-security-$SOURCE_SHA" --dir evidence
+          for file in SHA256SUMS source-tree.txt source-locks.sha256 product.sha256 \
+            security-summary.txt source-security.json product-security.json \
+            runtime-security.json source-sbom.cdx.json; do
+            test -s "evidence/$file"
+          done
+          sha256sum --check evidence/SHA256SUMS
+          git ls-tree -r --name-only HEAD | LC_ALL=C sort |
+            diff -u evidence/source-tree.txt -
+          sha256sum --check evidence/source-locks.sha256
+          jq -e '.serialNumber and ((.components // []) | length > 0)' \
+            evidence/source-sbom.cdx.json >/dev/null
+          for scope in source product runtime; do
+            report="evidence/${scope}-security.json"
+            for field in secrets critical high; do
+              grep -Fx "${scope}_${field}=0" evidence/security-summary.txt >/dev/null
+            done
+            test "$(jq '[.Results[]?.Secrets[]?] | length' "$report")" -eq 0
+            test "$(jq '[.Results[]?.Vulnerabilities[]? |
+              select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' "$report")" -eq 0
+          done
+
+      - name: Install checksum-pinned Go 1.27.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/go1.27.0.linux-amd64.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            --output "$archive" 'https://go.dev/dl/go1.27.0.linux-amd64.tar.gz'
+          printf '%s  %s\n' \
+            '675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685' \
+            "$archive" | sha256sum --check
+          tar -C "$RUNNER_TEMP" -xzf "$archive"
+          printf '%s\n' "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+          printf 'GOROOT=%s\n' "$RUNNER_TEMP/go" >> "$GITHUB_ENV"
+
+      - name: Rebuild exactly the gated binaries and candidate image
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_OVERRIDE=0.14.27 ./scripts/build
+          sha256sum --check evidence/product.sha256
+          VERSION_OVERRIDE=0.14.27 TAG=0.14.27 REPO=local/pasturestack \
+            IMAGE_REVISION="$SOURCE_SHA" ./scripts/package
+          test "$(wc -l < dist/images)" -eq 1
+          grep -Fx "$LOCAL_IMAGE" dist/images
+          test "$(docker image inspect "$LOCAL_IMAGE" \
+            --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.27
+          test "$(docker image inspect "$LOCAL_IMAGE" \
+            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+          docker tag "$LOCAL_IMAGE" "$SERVICE_IMAGE"
+
+      - name: Re-scan the actual release image before any publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$PWD/dist/release"
+          mkdir -p "$release_dir"
+          docker pull "$TRIVY_IMAGE"
+          cache="$RUNNER_TEMP/ipsec-release-trivy-cache"
+          mkdir -p "$cache"
+          docker run --rm -v "$cache:/root/.cache/trivy" "$TRIVY_IMAGE" \
+            image --cache-dir /root/.cache/trivy --download-db-only
+          docker run --rm --network none -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$cache:/root/.cache/trivy" -v "$release_dir:/release" "$TRIVY_IMAGE" \
+            image --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
+            --scanners vuln,secret --severity CRITICAL,HIGH --format json \
+            --output /release/runtime-security.json "$SERVICE_IMAGE"
+          test -s "$release_dir/runtime-security.json"
+          test "$(jq '[.Results[]?.Secrets[]?] | length' "$release_dir/runtime-security.json")" -eq 0
+          test "$(jq '[.Results[]?.Vulnerabilities[]? |
+            select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' \
+            "$release_dir/runtime-security.json")" -eq 0
+          docker run --rm --network none -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$cache:/root/.cache/trivy" -v "$release_dir:/release" "$TRIVY_IMAGE" \
+            image --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
+            --format cyclonedx --output /release/image-sbom.cdx.json "$SERVICE_IMAGE"
+          test -s "$release_dir/image-sbom.cdx.json"
+          jq -e '.serialNumber and ((.components // []) | length > 0)' \
+            "$release_dir/image-sbom.cdx.json" >/dev/null
+          cp evidence/source-sbom.cdx.json "$release_dir/source-sbom.cdx.json"
+          cp evidence/product.sha256 "$release_dir/product.sha256"
+          cp evidence/security-summary.txt "$release_dir/gate-security-summary.txt"
+
+      - name: Publish a new tag or safely resume the same existing digest
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$TAG_OBJECT_SHA"
+          release_status="$(curl --proto '=https' --tlsv1.2 --silent --show-error \
+            --output "$RUNNER_TEMP/existing-release.json" --write-out '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          case "$release_status" in
+            404) ;;
+            200) echo "GitHub Release already exists; refusing to recreate it" >&2; exit 1 ;;
+            *) echo "Cannot establish GitHub Release state: HTTP $release_status" >&2; exit 1 ;;
+          esac
+
+          # Public GHCR pull token is for a read-only manifest probe, not publishing.
+          registry_token="$(curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+            --get --data-urlencode 'service=ghcr.io' \
+            --data-urlencode 'scope=repository:pasturestack/ipsec-vxlan-overlay-network:pull' \
+            https://ghcr.io/token | jq -er .token)"
+          manifest_url="https://ghcr.io/v2/pasturestack/ipsec-vxlan-overlay-network/manifests/$RELEASE_TAG"
+          manifest_headers="$RUNNER_TEMP/ipsec-manifest.headers"
+          manifest_body="$RUNNER_TEMP/ipsec-manifest.json"
+          inspect_tag() {
+            curl --proto '=https' --tlsv1.2 --silent --show-error \
+              --dump-header "$manifest_headers" --output "$manifest_body" \
+              --write-out '%{http_code}' -H "Authorization: Bearer $registry_token" \
+              -H 'Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json' \
+              "$manifest_url"
+          }
+          manifest_digest() {
+            local digest body_hash
+            digest="$(grep -i '^docker-content-digest:' "$manifest_headers" |
+              awk '{print $2}' | tr -d '\r')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            body_hash="sha256:$(sha256sum "$manifest_body" | awk '{print $1}')"
+            test "$body_hash" = "$digest"
+            printf '%s\n' "$digest"
+          }
+          local_config="$(docker image inspect "$LOCAL_IMAGE" --format '{{.Id}}')"
+          [[ "$local_config" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          status="$(inspect_tag)"
+          case "$status" in
+            200)
+              test -n "$RESUME_DIGEST" || {
+                echo "Image tag already exists; supply its recorded digest to resume" >&2
+                exit 1
+              }
+              digest="$(manifest_digest)"
+              test "$digest" = "$RESUME_DIGEST"
+              test "$(jq -er '.config.digest' "$manifest_body")" = "$local_config"
+              echo "Existing image digest and rebuilt image config match; skipping push."
+              ;;
+            404)
+              test -z "$RESUME_DIGEST" || {
+                echo "Resume digest supplied but the image tag is absent" >&2
+                exit 1
+              }
+              # A second immediate probe reduces, but cannot eliminate, external-publisher races.
+              test "$(inspect_tag)" = 404 || {
+                echo "Image tag appeared before push; refusing to overwrite" >&2
+                exit 1
+              }
+              docker push "$SERVICE_IMAGE"
+              test "$(inspect_tag)" = 200
+              digest="$(manifest_digest)"
+              test "$(jq -er '.config.digest' "$manifest_body")" = "$local_config"
+              ;;
+            *)
+              echo "Cannot establish GHCR tag state: HTTP $status" >&2
+              exit 1
+              ;;
+          esac
+          printf '%s\n' "$SERVICE_IMAGE@$digest" > dist/release/image-digest.txt
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'Image: %s@%s\n' "$SERVICE_IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package checksummed release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="dist/release"
+          product_dir="$release_dir/ipsec-vxlan-overlay-network-0.14.27-linux-amd64"
+          mkdir -p "$product_dir"
+          cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology \
+            LICENSE ORIGIN.md SECURITY.md THIRD_PARTY_NOTICES.md "$product_dir/"
+          cp -R LICENSES "$product_dir/third-party-licenses"
+          printf 'source_sha=%s\nsecurity_run_id=%s\ncodeql_run_id=%s\n' \
+            "$SOURCE_SHA" "$SECURITY_RUN_ID" "$CODEQL_RUN_ID" \
+            > "$release_dir/release-identity.txt"
+          source_epoch="$(git show -s --format=%ct HEAD)"
+          find "$product_dir" -exec touch -h -d "@$source_epoch" {} +
+          tar --sort=name --mtime="@$source_epoch" --owner=0 --group=0 \
+            --numeric-owner -C "$release_dir" \
+            -cJf "$release_dir/ipsec-vxlan-overlay-network-0.14.27-linux-amd64.tar.xz" \
+            ipsec-vxlan-overlay-network-0.14.27-linux-amd64
+          (
+            cd "$release_dir"
+            sha256sum ipsec-vxlan-overlay-network-0.14.27-linux-amd64.tar.xz \
+              source-sbom.cdx.json image-sbom.cdx.json product.sha256 \
+              runtime-security.json gate-security-summary.txt image-digest.txt \
+              release-identity.txt > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/release/SHA256SUMS
+
+      - name: Attest the exact GHCR image digest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/pasturestack/ipsec-vxlan-overlay-network
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Publish immutable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title 'IPsec Overlay v0.14.27' \
+            --notes "Source ${SOURCE_SHA}; Security gate run ${SECURITY_RUN_ID}; CodeQL run ${CODEQL_RUN_ID}. GHCR image ${SERVICE_IMAGE}@$(cat dist/release/image-digest.txt | sed 's/^.*@//')." \
+            dist/release/ipsec-vxlan-overlay-network-0.14.27-linux-amd64.tar.xz \
+            dist/release/source-sbom.cdx.json \
+            dist/release/image-sbom.cdx.json \
+            dist/release/product.sha256 \
+            dist/release/runtime-security.json \
+            dist/release/gate-security-summary.txt \
+            dist/release/image-digest.txt \
+            dist/release/release-identity.txt \
+            dist/release/SHA256SUMS
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" |
+            jq -e --arg tag "$RELEASE_TAG" \
+              '.tag_name == $tag and .draft == false and .prerelease == false and
+               (.assets | length) == 9' >/dev/null
+
+      - name: Preserve image digest for a safe retry after partial publication
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ipsec-vxlan-overlay-release-digest-${{ github.run_id }}
+          path: dist/release/image-digest.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Forget registry credentials
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io >/dev/null 2>&1 || true

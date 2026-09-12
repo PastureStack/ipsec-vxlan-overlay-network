@@ -16,21 +16,33 @@ test -f ubuntu-apt.lock
 grep -Fx "UBUNTU_APT_SNAPSHOT='20260808T000000Z'" ubuntu-apt.lock >/dev/null
 grep -Fx "UBUNTU_APT_GCC_VERSION='4:15.2.0-5ubuntu1'" ubuntu-apt.lock >/dev/null
 grep -F 'https://snapshot.ubuntu.com/ubuntu/%s' Dockerfile.dapper package/Dockerfile >/dev/null
-if git grep -n -E \
+git_grep_status=0
+git grep -n -E \
     'UBUNTU_MIRROR|http://(archive|security)[.]ubuntu[.]com' \
-    -- . ':(exclude)scripts/validate' ':(exclude)vendor/**'; then
+    -- . ':(exclude)scripts/validate' ':(exclude)vendor/**' || git_grep_status=$?
+if [ "$git_grep_status" -eq 0 ]; then
     echo "A mutable Ubuntu package source remains" >&2
     exit 1
+fi
+if [ "$git_grep_status" -ne 1 ]; then
+    echo "Unable to verify Ubuntu source references with git grep" >&2
+    exit "$git_grep_status"
 fi
 test -f go.mod
 test -f go.sum
 test -f vendor/modules.txt
 test ! -e vendor.lock
-if git grep -n -E \
+git_grep_status=0
+git grep -n -E \
     'cloud[.]google[.]com/go|github[.]com/golang/gddo|github[.]com/rancher/rancher-metadata' \
-    -- '*.go'; then
+    -- '*.go' || git_grep_status=$?
+if [ "$git_grep_status" -eq 0 ]; then
     echo "Removed test-only dependencies returned to the source tree" >&2
     exit 1
+fi
+if [ "$git_grep_status" -ne 1 ]; then
+    echo "Unable to verify Go dependency references with git grep" >&2
+    exit "$git_grep_status"
 fi
 for script in scripts/* package/*.sh package/update-platform-ca; do
     [ -f "$script" ] || continue

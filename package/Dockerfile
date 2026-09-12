@@ -44,6 +44,7 @@ RUN set -eux; \
         iptables="${UBUNTU_APT_IPTABLES_VERSION}" \
         iputils-ping="${UBUNTU_APT_IPUTILS_PING_VERSION}" \
         kmod="${UBUNTU_APT_KMOD_VERSION}" \
+        nftables="${UBUNTU_APT_NFTABLES_VERSION}" \
         libstrongswan-extra-plugins="${UBUNTU_APT_STRONGSWAN_VERSION}" \
         libstrongswan-standard-plugins="${UBUNTU_APT_STRONGSWAN_VERSION}" \
         openssl="${UBUNTU_APT_OPENSSL_VERSION}" \
@@ -94,7 +95,7 @@ RUN set -eux; \
 
 COPY ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology per-host-subnet mount-propagation /usr/bin/
 COPY metadata-cni-ipam host-local-cni-ipam flat-cni-ipam /opt/cni/bin/
-COPY start.sh start-ipsec.sh start-vxlan.sh start-flat.sh start-cni-driver.sh update-platform-ca /usr/bin/
+COPY start.sh start-ipsec.sh start-vxlan.sh start-flat.sh start-cni-driver.sh firewall-backend.sh update-platform-ca /usr/bin/
 COPY pasturestack-entrypoint.sh /pasturestack-entrypoint.sh
 COPY strongswan-pasturestack.conf /etc/strongswan.d/pasturestack-overlay.conf
 COPY licenses/source /licenses/pasturestack
@@ -113,6 +114,7 @@ RUN set -eux; \
         /usr/bin/start-vxlan.sh \
         /usr/bin/start-flat.sh \
         /usr/bin/start-cni-driver.sh \
+        /usr/bin/firewall-backend.sh \
         /usr/bin/update-platform-ca \
         /opt/cni/bin/metadata-cni-ipam \
         /opt/cni/bin/host-local-cni-ipam \

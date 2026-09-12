@@ -1,0 +1,78 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+source package/firewall-backend.sh
+
+commands=()
+host_netns_cmd() {
+    commands+=("$*")
+    case "$*" in
+        "nft list table ip docker-bridges") [ "${TEST_DOCKER_BACKEND:-}" = nftables ] ;;
+        "iptables-nft -t nat -S DOCKER") [ "${TEST_DOCKER_BACKEND:-}" = iptables-nft ] ;;
+        "grep -qx nat /proc/net/ip_tables_names") [ "${TEST_DOCKER_BACKEND:-}" = iptables-legacy ] ;;
+        "iptables-legacy -t nat -S DOCKER") [ "${TEST_DOCKER_BACKEND:-}" = iptables-legacy ] ;;
+        "iptables-legacy -t nat -S CATTLE_NAT_POSTROUTING") return 1 ;;
+        "iptables-nft -t nat -S CATTLE_NAT_POSTROUTING") return 0 ;;
+        "iptables-nft -t nat -C CATTLE_NAT_POSTROUTING"*) return 1 ;;
+        "iptables-nft -t nat -I CATTLE_NAT_POSTROUTING"*) return 0 ;;
+        "iptables-nft -t nat -C POSTROUTING"*) return 1 ;;
+        "iptables-nft -t nat -I POSTROUTING"*) return 0 ;;
+        "iptables -t nat -C POSTROUTING"*) return 1 ;;
+        "iptables -t nat -I POSTROUTING"*) return 0 ;;
+        *) echo "Unexpected firewall command: $*" >&2; return 1 ;;
+    esac
+}
+
+TEST_DOCKER_BACKEND=nftables
+PASTURESTACK_FIREWALL_BACKEND=auto
+configure_overlay_firewall true 192.0.2.1 eth0
+[ "$PASTURESTACK_FIREWALL_BACKEND" = nftables ]
+case " ${commands[*]} " in
+    *iptables*|*legacy*) echo "Native detection probed xtables: ${commands[*]}" >&2; exit 1 ;;
+esac
+
+commands=()
+TEST_DOCKER_BACKEND=iptables-nft
+PASTURESTACK_FIREWALL_BACKEND=auto
+resolve_firewall_backend
+[ "$PASTURESTACK_FIREWALL_BACKEND" = iptables-nft ]
+ensure_overlay_nat_bypass
+ensure_gateway_masquerade 192.0.2.1 eth0
+case " ${commands[*]} " in
+    *iptables-legacy*) echo "iptables-nft mode probed legacy" >&2; exit 1 ;;
+esac
+[[ " ${commands[*]} " == *"iptables-nft -t nat -I CATTLE_NAT_POSTROUTING 1"* ]]
+[[ " ${commands[*]} " == *"iptables-nft -t nat -I POSTROUTING -o eth0"* ]]
+
+commands=()
+TEST_DOCKER_BACKEND=iptables-legacy
+PASTURESTACK_FIREWALL_BACKEND=auto
+resolve_firewall_backend
+[ "$PASTURESTACK_FIREWALL_BACKEND" = iptables-legacy ]
+case " ${commands[*]} " in
+    *"iptables-legacy -t nat -S DOCKER"*) ;;
+    *) echo "Expected active legacy Docker chain" >&2; exit 1 ;;
+esac
+
+commands=()
+TEST_DOCKER_BACKEND=nftables
+PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
+if resolve_firewall_backend; then
+    echo "Explicit legacy must fail when Docker is native nftables" >&2
+    exit 1
+fi
+
+commands=()
+TEST_DOCKER_BACKEND=unknown
+PASTURESTACK_FIREWALL_BACKEND=auto
+configure_overlay_firewall false 192.0.2.1 eth0
+[[ " ${commands[*]} " == *"iptables -t nat -I POSTROUTING -o eth0 -s 192.0.2.1 -j MASQUERADE"* ]]
+case " ${commands[*]} " in
+    *"nft list"*|*"iptables-nft"*|*"iptables-legacy"*)
+        echo "Container-netns mode must not probe the host Docker backend" >&2
+        exit 1
+        ;;
+esac
+
+echo FIREWALL_BACKEND_TEST=pass

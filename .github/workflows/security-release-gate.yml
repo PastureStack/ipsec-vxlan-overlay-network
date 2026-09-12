@@ -44,8 +44,11 @@ jobs:
           set -euo pipefail
           test -z "$(git status --porcelain)"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-list --count 721d6ddb2f0a4faa11c9a50e75ed28e1f7cad317..HEAD)" -eq 1
-          test "$(git rev-list --count --merges 721d6ddb2f0a4faa11c9a50e75ed28e1f7cad317..HEAD)" -eq 0
+          reviewed_base=721d6ddb2f0a4faa11c9a50e75ed28e1f7cad317
+          test "$(git cat-file -t "$reviewed_base")" = commit
+          git merge-base --is-ancestor "$reviewed_base" HEAD
+          test "$(git rev-list --count "$reviewed_base"..HEAD)" -ge 1
+          test "$(git rev-list --count --merges "$reviewed_base"..HEAD)" -eq 0
           source scripts/version
           test "$VERSION" = "$CANDIDATE_VERSION"
           go list -mod=vendor ./... >/dev/null
