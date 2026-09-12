@@ -41,8 +41,9 @@ also have a live PREROUTING or OUTPUT jump through exactly one frontend,
 an explicit mismatch, an opposite frontend's reachable `CATTLE_*` hook or
 `FORWARD DROP` policy, or a Docker API failure stops startup. Orphan
 `CATTLE_*` chains without a hook are not treated as active. The router reads
-legacy NAT rules only if `/proc/net/ip_tables_names` already lists `nat`; it
-never probes an unloaded legacy table, and never modifies Docker-owned chains
+legacy NAT rules only if `/proc/net/ip_tables_names` already lists `nat`. A
+missing procfs list means no loaded legacy tables; any other read failure stops
+startup. It never probes an unloaded legacy table or modifies Docker-owned chains
 or the host FORWARD policy. The historical container-network-namespace path
 remains independent of this host-mode detection.
 

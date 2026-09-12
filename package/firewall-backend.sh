@@ -121,7 +121,7 @@ resolve_firewall_backend() {
     driver=$(ipsec-vxlan-overlay-network docker-firewall-driver) || return 1
     native=$(native_docker_state) || return 1
     nft=$(xt_docker_state iptables-nft) || return 1
-    legacy_tables=$(host_netns_cmd cat /proc/net/ip_tables_names) || return 1
+    legacy_tables=$(host_netns_cmd ipsec-vxlan-overlay-network legacy-loaded-tables) || return 1
     legacy=absent
     if grep -qx nat <<<"$legacy_tables"; then
         legacy=$(xt_docker_state iptables-legacy) || return 1

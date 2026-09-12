@@ -67,6 +67,17 @@ func main() {
 				fmt.Println(driver)
 				return nil
 			},
+		}, {
+			Name:   "legacy-loaded-tables",
+			Hidden: true,
+			Action: func(_ context.Context, _ *cli.Command) error {
+				tables, err := legacyLoadedTables("/proc/net/ip_tables_names")
+				if err != nil {
+					return err
+				}
+				fmt.Print(tables)
+				return nil
+			},
 		}},
 		Flags: []cli.Flag{
 			&cli.StringFlag{

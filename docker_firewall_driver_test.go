@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -47,6 +48,23 @@ func TestDockerFirewallDriver(t *testing.T) {
 				t.Fatalf("driver=%q error=%v, want driver=%q error=%t", got, err, tc.expected, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestLegacyLoadedTables(t *testing.T) {
+	dir := t.TempDir()
+	if got, err := legacyLoadedTables(filepath.Join(dir, "absent")); err != nil || got != "" {
+		t.Fatalf("ENOENT must mean no loaded legacy tables: %q, %v", got, err)
+	}
+	path := filepath.Join(dir, "tables")
+	if err := os.WriteFile(path, []byte("nat\nfilter\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := legacyLoadedTables(path); err != nil || got != "nat\nfilter\n" {
+		t.Fatalf("loaded legacy tables not preserved: %q, %v", got, err)
+	}
+	if _, err := legacyLoadedTables(dir); err == nil {
+		t.Fatal("non-ENOENT procfs read failure must fail closed")
 	}
 }
 

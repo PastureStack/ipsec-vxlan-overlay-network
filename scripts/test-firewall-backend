@@ -12,6 +12,7 @@ TEST_NFT=absent
 TEST_LEGACY=absent
 TEST_LEGACY_LOADED=false
 TEST_LEGACY_FILTER_LOADED=false
+TEST_LEGACY_LIST=normal
 TEST_NFT_CATTLE=none
 TEST_LEGACY_CATTLE=none
 TEST_NFT_FORWARD_DROP=false
@@ -72,7 +73,9 @@ host_netns_cmd() {
                     orphan) echo '-N CATTLE_FORWARD' ;;
                 esac
             fi ;;
-        "cat /proc/net/ip_tables_names")
+        "ipsec-vxlan-overlay-network legacy-loaded-tables")
+            [ "$TEST_LEGACY_LIST" != error ] || { echo 'Permission denied' >&2; return 1; }
+            [ "$TEST_LEGACY_LIST" != missing ] || return 0
             if [ "$TEST_LEGACY_LOADED" = true ]; then echo nat; fi
             if [ "$TEST_LEGACY_FILTER_LOADED" = true ]; then echo filter; fi ;;
         "iptables-nft -t nat -S CATTLE_NAT_POSTROUTING"|"iptables-legacy -t nat -S CATTLE_NAT_POSTROUTING") return 1 ;;
@@ -90,6 +93,7 @@ reset_case() {
     TEST_LEGACY=absent
     TEST_LEGACY_LOADED=false
     TEST_LEGACY_FILTER_LOADED=false
+    TEST_LEGACY_LIST=normal
     TEST_NFT_CATTLE=none
     TEST_LEGACY_CATTLE=none
     TEST_NFT_FORWARD_DROP=false
@@ -125,6 +129,12 @@ TEST_DRIVER=nftables
 TEST_NATIVE=active
 expect_mode nftables
 case " $(<"$command_log") " in *iptables-legacy*) echo 'Unloaded legacy NAT was probed' >&2; exit 1 ;; esac
+
+# On an nft-only host /proc/net/ip_tables_names can be absent. The Go helper
+# treats precisely ENOENT as no loaded legacy table; other read failures must
+# stop before any firewall mutation.
+reset_case; TEST_DRIVER=nftables; TEST_NATIVE=active; TEST_LEGACY_LIST=missing; expect_mode nftables
+reset_case; TEST_DRIVER=nftables; TEST_NATIVE=active; TEST_LEGACY_LIST=error; expect_reject
 
 reset_case
 TEST_NFT=active

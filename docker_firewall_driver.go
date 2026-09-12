@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -58,4 +59,17 @@ func dockerFirewallDriver(ctx context.Context, socket string) (string, error) {
 		return "", fmt.Errorf("Docker %q did not report a usable firewall driver", info.ServerVersion)
 	}
 	return "iptables", nil
+}
+
+// A missing procfs legacy table list means no legacy tables are loaded on a
+// native nftables host. Any other read error leaves the backend ambiguous.
+func legacyLoadedTables(path string) (string, error) {
+	tables, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read loaded legacy netfilter tables: %w", err)
+	}
+	return string(tables), nil
 }
