@@ -128,6 +128,10 @@ reset_case
 TEST_DRIVER=nftables
 TEST_NATIVE=active
 expect_mode nftables
+configure_overlay_firewall true 192.0.2.1 eth0
+case " $(<"$command_log") " in
+    *" -I "*|*" -D "*|*" -N "*|*" -F "*) echo 'IPsec router mutated manager-owned host firewall rules' >&2; exit 1 ;;
+esac
 case " $(<"$command_log") " in *iptables-legacy*) echo 'Unloaded legacy NAT was probed' >&2; exit 1 ;; esac
 
 # On an nft-only host /proc/net/ip_tables_names can be absent. The Go helper
@@ -138,15 +142,21 @@ reset_case; TEST_DRIVER=nftables; TEST_NATIVE=active; TEST_LEGACY_LIST=error; ex
 
 reset_case
 TEST_NFT=active
-expect_mode iptables-nft
-ensure_gateway_masquerade 192.0.2.1 eth0
-[[ " $(<"$command_log") " == *"iptables-nft -t nat -I POSTROUTING -o eth0"* ]]
+configure_overlay_firewall true 192.0.2.1 eth0
+[[ "$PASTURESTACK_FIREWALL_BACKEND" = iptables-nft ]]
+case " $(<"$command_log") " in
+    *" -I "*|*" -D "*|*" -N "*|*" -F "*) echo 'IPsec router mutated manager-owned host firewall rules' >&2; exit 1 ;;
+esac
 
 reset_case
 TEST_LEGACY_LOADED=true
 TEST_LEGACY=active
-expect_mode iptables-legacy
+configure_overlay_firewall true 192.0.2.1 eth0
+[[ "$PASTURESTACK_FIREWALL_BACKEND" = iptables-legacy ]]
 [[ " $(<"$command_log") " == *"iptables-legacy -t nat -S"* ]]
+case " $(<"$command_log") " in
+    *" -I "*|*" -D "*|*" -N "*|*" -F "*) echo 'IPsec router mutated manager-owned host firewall rules' >&2; exit 1 ;;
+esac
 
 # A table or DOCKER chain without an active base hook is never evidence of the
 # current daemon backend; contradictory or dual-active observations fail closed.

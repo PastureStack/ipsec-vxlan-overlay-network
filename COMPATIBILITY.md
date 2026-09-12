@@ -30,9 +30,11 @@ The default metadata endpoint is the brand-neutral link-local address `http://16
 
 For Docker's native nftables bridge firewall, Docker must report `nftables`
 and its `ip docker-bridges` table must contain active forward and postrouting
-base hooks. The router does not write host firewall rules in this mode: the
-active network-plugin-manager must manage the overlay subnet's forwarding
-mark and exclude overlay destinations from its own egress masquerade. Docker
+base hooks. The router never writes host firewall rules in host-XFRM mode:
+the active network-plugin-manager must manage the overlay subnet's forwarding
+and exclude overlay destinations from its own egress masquerade in all three
+backends. Upgrade the manager and verify it is healthy before upgrading the
+router; the router no longer patches manager-owned `CATTLE_*` chains. Docker
 must be configured to accept mark `0x1068/0x1068`. An xtables `ACCEPT` rule
 in a different nftables base chain is not a valid replacement for that NAT
 exclusion. For Docker's `iptables` driver, a declared `DOCKER` NAT chain must

@@ -165,44 +165,12 @@ resolve_firewall_backend() {
     export PASTURESTACK_FIREWALL_BACKEND
 }
 
-ensure_overlay_nat_bypass() {
-    case "$PASTURESTACK_FIREWALL_BACKEND" in
-        nftables)
-            # The manager's native hostnat rule excludes overlay destinations.
-            # An ACCEPT in a separate nftables base chain would not exempt a
-            # later NAT base chain and must not masquerade as a bypass.
-            ;;
-        iptables-nft|iptables-legacy)
-            if host_netns_cmd "$PASTURESTACK_FIREWALL_BACKEND" -t nat -S CATTLE_NAT_POSTROUTING >/dev/null 2>&1; then
-                host_netns_cmd "$PASTURESTACK_FIREWALL_BACKEND" -t nat -C CATTLE_NAT_POSTROUTING -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT 2>/dev/null ||
-                    host_netns_cmd "$PASTURESTACK_FIREWALL_BACKEND" -t nat -I CATTLE_NAT_POSTROUTING 1 -s 10.42.0.0/16 -d 10.42.0.0/16 -j ACCEPT
-            fi
-            ;;
-    esac
-}
-
-ensure_gateway_masquerade() {
-    local gateway=$1 out_iface=$2
-    [ -n "$gateway" ] || return 0
-    case "$PASTURESTACK_FIREWALL_BACKEND" in
-        nftables)
-            # In host-XFRM mode GATEWAY is the next-hop of the physical host,
-            # not an overlay source. Native overlay egress is owned by the
-            # network manager and this historical rule must not be replicated.
-            ;;
-        iptables-nft|iptables-legacy)
-            host_netns_cmd "$PASTURESTACK_FIREWALL_BACKEND" -t nat -C POSTROUTING -o "$out_iface" -s "$gateway" -j MASQUERADE 2>/dev/null ||
-                host_netns_cmd "$PASTURESTACK_FIREWALL_BACKEND" -t nat -I POSTROUTING -o "$out_iface" -s "$gateway" -j MASQUERADE
-            ;;
-    esac
-}
-
 configure_overlay_firewall() {
     local run_in_host_netns=$1 gateway=$2 out_iface=$3
     if [ "$run_in_host_netns" = true ]; then
+        # Host NAT and forwarding belong to Network Plugin Manager. The router
+        # validates the selected Docker backend but does not write its rules.
         resolve_firewall_backend
-        ensure_gateway_masquerade "$gateway" "$out_iface"
-        ensure_overlay_nat_bypass
         return
     fi
     # Historical container-network-namespace mode has no host Docker tables

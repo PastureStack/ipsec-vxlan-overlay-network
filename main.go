@@ -272,7 +272,6 @@ func appMain(ctx *cli.Command) error {
 		ipsecOverlay := ipsec.NewOverlay(ctx.String("ipsec-config"), db)
 		ipsecOverlay.NetnsPath = ctx.String(xfrmNetnsPathFlag)
 		ipsecOverlay.SyncHostRoutes = ctx.Bool(syncHostRoutesFlag)
-		ipsecOverlay.FirewallBackend = ctx.String(firewallBackendFlag)
 		switch ctx.String(xfrmTunnelSourceFlag) {
 		case xfrmTunnelSourceLocal:
 			ipsecOverlay.UseHostTunnelSource = false

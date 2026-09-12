@@ -14,9 +14,11 @@ an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
 integration test. That test is not a two-physical-host upgrade or reboot gate.
 Publishing the image alone does not change deployments.
 
-`v0.14.28` tightens host firewall detection. Publishing its image and updating
-Catalog are separate gates; source changes alone do not change a deployment.
-Check the Catalog version lock for the current deployment coordinate.
+`v0.14.28` tightens host firewall detection. The next release keeps that
+validation but leaves host NAT and forwarding solely to Network Plugin
+Manager. Upgrade that manager and verify it is healthy before upgrading this
+router; publishing an image and updating Catalog are separate gates. Check the
+Catalog version lock for the current deployment coordinate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
@@ -60,13 +62,13 @@ firewall driver from the mounted Docker socket and verifies that exactly one
 matching Docker-owned firewall backend has live hooks. An explicit selection
 is verified the same way; stale, mixed or mismatched Docker rules, reachable
 old platform hooks in the opposite frontend, or an opposite `FORWARD DROP`
-policy stop startup before the router writes any host NAT rule. Orphan chains
+policy stop startup without changing host NAT rules. Orphan chains
 without a live path from a built-in chain are not treated as active hooks.
 The router only sends `GET /info` to the
 Docker API, but mounting the Unix socket is a privileged capability: `:ro` on
 the mount does **not** restrict API writes. The router already requires
 privileged access and host PID access; operators must protect this container
-accordingly. The native path does not write any host firewall rule. The active
+accordingly. No host-XFRM backend path writes a host firewall rule. The active
 network manager owns overlay forwarding marks and NAT, and Docker's native
 bridge firewall must accept mark `0x1068/0x1068`. See
 [COMPATIBILITY.md](COMPATIBILITY.md) for the boundary and migration notes.
