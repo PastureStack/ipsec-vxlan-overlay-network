@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+source package/wait-for-overlay-port.sh
+
+count_file=$(mktemp)
+trap 'rm -f "$count_file"' EXIT
+printf '0\n' >"$count_file"
+sleep_count=0
+listener_checks_before_release=2
+host_netns_cmd() {
+    [ "$*" = "ss -H -ltn ( sport = :8111 )" ] || return 1
+    local count
+    count=$(<"$count_file")
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$count_file"
+    if ((count <= listener_checks_before_release)); then
+        printf 'LISTEN 0 4096 *:8111 *:*\n'
+    fi
+}
+sleep() {
+    [ "$1" = 2 ] || return 1
+    ((sleep_count += 1))
+}
+
+wait_for_overlay_port_release 3
+[ "$(<"$count_file")" = 3 ]
+[ "$sleep_count" = 2 ]
+
+printf '0\n' >"$count_file"
+sleep_count=0
+listener_checks_before_release=99
+if wait_for_overlay_port_release 2; then
+    echo 'Occupied overlay port unexpectedly passed the bounded wait' >&2
+    exit 1
+fi
+[ "$(<"$count_file")" = 2 ]
+[ "$sleep_count" = 2 ]
+
+host_netns_cmd() { return 1; }
+if wait_for_overlay_port_release 2; then
+    echo 'Unverifiable network namespace unexpectedly passed the wait' >&2
+    exit 1
+fi
+
+echo OVERLAY_PORT_HANDOFF_TEST_OK

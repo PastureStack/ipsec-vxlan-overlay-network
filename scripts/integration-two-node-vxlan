@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:0.14.29}
+image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:0.14.30}
 test_id=$$
 network="pasture-vxlan-it-${test_id}"
 node_a="pasture-vxlan-a-${test_id}"
