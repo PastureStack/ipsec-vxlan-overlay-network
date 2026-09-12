@@ -39,6 +39,13 @@ that publication is distinct from a completed live rolling-upgrade gate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
+The `v0.14.31` candidate keeps charon running when one peer is temporarily
+unavailable (for example, during a host reboot). The existing 30-second IPsec
+health reconciliation retries that missing CHILD_SA; a stale local peer
+identity still uses its separate explicit charon restart path. This does not
+change firewall ownership or the selected Docker firewall backend. Publication
+and live restart verification remain separate gates.
+
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
 separately and retains its raw findings; only exact, already-reviewed
@@ -63,8 +70,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.30 make build
-TAG=0.14.30 make package
+VERSION_OVERRIDE=0.14.31 make build
+TAG=0.14.31 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
