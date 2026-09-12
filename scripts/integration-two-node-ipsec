@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:0.14.31}
+image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:0.14.32}
 test_id=$$
 network="pasture-overlay-it-${test_id}"
 node_a="pasture-overlay-a-${test_id}"
@@ -108,6 +108,63 @@ if ! grep -Eq "$counter_pattern" <<<"$state_a" || ! grep -Eq "$counter_pattern" 
     printf '%s\n' "$state_a" >&2
     printf '%s\n' "$state_b" >&2
     echo "IPsec associations did not record encrypted traffic" >&2
+    exit 1
+fi
+
+single_sa_on_both_nodes() {
+    local count_a count_b
+    count_a=$(docker exec "$node_a" swanctl --list-sas --raw 2>/dev/null | grep -c '^list-sa event' || true)
+    count_b=$(docker exec "$node_b" swanctl --list-sas --raw 2>/dev/null | grep -c '^list-sa event' || true)
+    [ "$count_a" = 1 ] && [ "$count_b" = 1 ]
+}
+
+if ! single_sa_on_both_nodes; then
+    dump_logs
+    echo "Initial connection has duplicate IKE SAs" >&2
+    exit 1
+fi
+
+# Force both peers to propose another IKE SA while the existing tunnel is
+# healthy. The older default policy (unique=no) retains both indefinitely.
+docker exec "$node_a" swanctl --initiate --ike conn-172.31.253.11 --timeout 20 >/dev/null 2>&1 &
+extra_a=$!
+docker exec "$node_b" swanctl --initiate --ike conn-172.31.253.10 --timeout 20 >/dev/null 2>&1 &
+extra_b=$!
+wait "$extra_a" || true
+wait "$extra_b" || true
+single_after_race=false
+for attempt in $(seq 1 30); do
+    if single_sa_on_both_nodes && \
+       docker exec "$node_a" ping -c 1 -W 1 -I 10.42.253.10 10.42.253.11 >/dev/null 2>&1; then
+        single_after_race=true
+        break
+    fi
+    sleep 1
+done
+if [ "$single_after_race" != true ]; then
+    dump_logs
+    echo "Concurrent initiation left duplicate or unusable IKE SAs" >&2
+    exit 1
+fi
+
+# Simulate a peer restart without resetting the surviving node. This is where
+# concurrent initiation previously left two long-lived SAs for one peer.
+docker restart --time 5 "$node_b" >/dev/null
+recovered=false
+for attempt in $(seq 1 120); do
+    if single_sa_on_both_nodes && \
+       docker exec "$node_a" ping -c 1 -W 1 -I 10.42.253.10 10.42.253.11 >/dev/null 2>&1; then
+        recovered=true
+        break
+    fi
+    sleep 1
+done
+
+if [ "$recovered" != true ]; then
+    dump_logs
+    docker exec "$node_a" swanctl --list-sas >&2 || true
+    docker exec "$node_b" swanctl --list-sas >&2 || true
+    echo "Peer restart did not converge to one working IKE SA" >&2
     exit 1
 fi
 
