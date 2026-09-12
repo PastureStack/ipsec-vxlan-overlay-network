@@ -36,6 +36,19 @@ resolve_firewall_backend() {
                 echo "Docker uses native nftables; refusing an xtables overlay backend" >&2
                 return 1
             fi
+            if [ "$requested" = iptables-legacy ]; then
+                # A legacy inspection on an nft-only host can itself load the
+                # forbidden legacy modules. Reject a live nft Docker chain
+                # and require an already-loaded legacy NAT table first.
+                if host_netns_cmd iptables-nft -t nat -S DOCKER >/dev/null 2>&1; then
+                    echo "Docker uses iptables-nft; refusing an iptables-legacy overlay backend" >&2
+                    return 1
+                fi
+                if ! host_netns_cmd grep -qx nat /proc/net/ip_tables_names; then
+                    echo "No active legacy NAT table; refusing an iptables-legacy probe" >&2
+                    return 1
+                fi
+            fi
             host_netns_cmd "$requested" -t nat -S DOCKER >/dev/null || return 1
             ;;
     esac
