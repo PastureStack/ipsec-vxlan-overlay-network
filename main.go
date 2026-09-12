@@ -56,6 +56,18 @@ func main() {
 		Name:    "ipsec-vxlan-overlay-network",
 		Usage:   "manage the PastureStack IPsec or VXLAN overlay data plane",
 		Version: VERSION,
+		Commands: []*cli.Command{{
+			Name:   "docker-firewall-driver",
+			Hidden: true,
+			Action: func(ctx context.Context, _ *cli.Command) error {
+				driver, err := dockerFirewallDriver(ctx, "/var/run/docker.sock")
+				if err != nil {
+					return err
+				}
+				fmt.Println(driver)
+				return nil
+			},
+		}},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name: "log",

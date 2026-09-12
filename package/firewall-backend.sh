@@ -1,58 +1,167 @@
 #!/bin/bash
 
-# Sourced by start.sh. All probes run in the host network namespace when the
-# overlay router uses the host XFRM namespace. In particular, never probe the
-# legacy frontend after finding Docker's native nftables table: even a read
-# through iptables-legacy can load forbidden legacy kernel modules.
+# Sourced by start.sh. Firewall probes run in the host network namespace when
+# the overlay router uses the host XFRM namespace. Inspect legacy rules only
+# when the legacy NAT table is already loaded: a read through iptables-legacy
+# on an nft-only host can otherwise load forbidden legacy kernel modules.
+native_docker_state() {
+    local rules
+    if ! rules=$(host_netns_cmd nft list table ip docker-bridges 2>&1); then
+        if [[ "$rules" == *"No such file or directory"* ||
+              "$rules" == *"Protocol not supported"* || "$rules" == *"Operation not supported"* ||
+              "$rules" == *"Address family not supported"* ]]; then
+            echo absent
+            return 0
+        fi
+        echo "Cannot inspect Docker native nftables hooks: $rules" >&2
+        return 1
+    fi
+    if grep -Eq 'type[[:space:]]+filter[[:space:]]+hook[[:space:]]+forward' <<<"$rules" &&
+       grep -Eq 'type[[:space:]]+nat[[:space:]]+hook[[:space:]]+postrouting' <<<"$rules"; then
+        echo active
+    else
+        echo stale
+    fi
+}
+
+xt_docker_state() {
+    local frontend=$1 rules
+    if ! rules=$(host_netns_cmd "$frontend" -t nat -S 2>&1); then
+        # An old kernel may have no nf_tables frontend. Do not mistake an
+        # inspection error (including permission denied) for an empty table.
+        if [ "$frontend" = iptables-nft ] &&
+           [[ "$rules" == *"Protocol not supported"* || "$rules" == *"Operation not supported"* ||
+              "$rules" == *"Address family not supported"* || "$rules" == *"Could not fetch rule set generation id: Invalid argument"* ]]; then
+            echo absent
+            return 0
+        fi
+        echo "Cannot inspect Docker $frontend NAT hooks: $rules" >&2
+        return 1
+    fi
+    if grep -qx -- '-N DOCKER' <<<"$rules"; then
+        if grep -Eq '^-A (PREROUTING|OUTPUT)([[:space:]].*)?[[:space:]]-j DOCKER([[:space:]]|$)' <<<"$rules"; then
+            echo active
+        else
+            echo stale
+        fi
+    elif grep -Eq '^-A (PREROUTING|OUTPUT)([[:space:]].*)?[[:space:]]-j DOCKER([[:space:]]|$)' <<<"$rules"; then
+        echo stale
+    else
+        echo absent
+    fi
+}
+
+xt_conflicting_host_rules() {
+    local frontend=$1 table=$2 rules
+    if ! rules=$(host_netns_cmd "$frontend" -t "$table" -S 2>&1); then
+        if [ "$frontend" = iptables-nft ] &&
+           [[ "$rules" == *"Protocol not supported"* || "$rules" == *"Operation not supported"* ||
+              "$rules" == *"Address family not supported"* || "$rules" == *"Could not fetch rule set generation id: Invalid argument"* ]]; then
+            echo absent
+            return 0
+        fi
+        echo "Cannot inspect $frontend $table migration rules: $rules" >&2
+        return 1
+    fi
+    if [ "$table" = filter ] && grep -qx -- '-P FORWARD DROP' <<<"$rules"; then
+        echo active
+        return 0
+    fi
+    # Follow jumps from built-in chains, not orphan CATTLE_* declarations.
+    # This also catches a CATTLE hook reached through DOCKER-USER.
+    local awk_status
+    if awk '
+        $1 == "-A" {
+            for (i = 3; i < NF; i++) {
+                if ($i == "-j" || $i == "-g") {
+                    key = $2 SUBSEP $(i + 1)
+                    if (!(key in edge)) {
+                        edge[key] = 1
+                        edge_count++
+                    }
+                }
+            }
+        }
+        END {
+            reach["INPUT"] = reach["FORWARD"] = reach["OUTPUT"] = 1
+            reach["PREROUTING"] = reach["POSTROUTING"] = 1
+            for (pass = 0; pass <= edge_count; pass++) {
+                for (item in edge) {
+                    split(item, pair, SUBSEP)
+                    if (reach[pair[1]]) reach[pair[2]] = 1
+                }
+            }
+            for (chain in reach) if (chain ~ /^CATTLE_/) exit 0
+            exit 1
+        }
+    ' <<<"$rules"; then
+        echo active
+    else
+        awk_status=$?
+        if [ "$awk_status" -eq 1 ]; then
+            echo absent
+        else
+            echo "Cannot parse $frontend $table migration rules" >&2
+            return 1
+        fi
+    fi
+}
+
 resolve_firewall_backend() {
     local requested=${PASTURESTACK_FIREWALL_BACKEND:-auto}
     case "$requested" in
-        auto)
-            if host_netns_cmd nft list table ip docker-bridges >/dev/null 2>&1; then
-                requested=nftables
-            elif host_netns_cmd iptables-nft -t nat -S DOCKER >/dev/null 2>&1; then
-                requested=iptables-nft
-            elif host_netns_cmd grep -qx nat /proc/net/ip_tables_names &&
-                 host_netns_cmd iptables-legacy -t nat -S DOCKER >/dev/null 2>&1; then
-                requested=iptables-legacy
-            else
-                echo "Cannot identify Docker firewall backend; set PASTURESTACK_FIREWALL_BACKEND explicitly" >&2
-                return 1
-            fi
-            ;;
-        nftables|iptables-nft|iptables-legacy) ;;
+        auto|nftables|iptables-nft|iptables-legacy) ;;
         *)
             echo "Unsupported PASTURESTACK_FIREWALL_BACKEND: $requested" >&2
             return 1
             ;;
     esac
 
-    case "$requested" in
-        nftables)
-            host_netns_cmd nft list table ip docker-bridges >/dev/null || return 1
-            ;;
-        iptables-nft|iptables-legacy)
-            if host_netns_cmd nft list table ip docker-bridges >/dev/null 2>&1; then
-                echo "Docker uses native nftables; refusing an xtables overlay backend" >&2
-                return 1
-            fi
-            if [ "$requested" = iptables-legacy ]; then
-                # A legacy inspection on an nft-only host can itself load the
-                # forbidden legacy modules. Reject a live nft Docker chain
-                # and require an already-loaded legacy NAT table first.
-                if host_netns_cmd iptables-nft -t nat -S DOCKER >/dev/null 2>&1; then
-                    echo "Docker uses iptables-nft; refusing an iptables-legacy overlay backend" >&2
-                    return 1
-                fi
-                if ! host_netns_cmd grep -qx nat /proc/net/ip_tables_names; then
-                    echo "No active legacy NAT table; refusing an iptables-legacy probe" >&2
-                    return 1
-                fi
-            fi
-            host_netns_cmd "$requested" -t nat -S DOCKER >/dev/null || return 1
+    local driver native nft legacy legacy_tables active frontend table conflict
+    driver=$(ipsec-vxlan-overlay-network docker-firewall-driver) || return 1
+    native=$(native_docker_state) || return 1
+    nft=$(xt_docker_state iptables-nft) || return 1
+    legacy_tables=$(host_netns_cmd cat /proc/net/ip_tables_names) || return 1
+    legacy=absent
+    if grep -qx nat <<<"$legacy_tables"; then
+        legacy=$(xt_docker_state iptables-legacy) || return 1
+    fi
+    if [ "$native" = stale ] || [ "$nft" = stale ] || [ "$legacy" = stale ]; then
+        echo "Stale Docker firewall rules found (native=$native nft=$nft legacy=$legacy); resolve the host migration before starting the overlay" >&2
+        return 1
+    fi
+    case "$driver:$native:$nft:$legacy" in
+        nftables:active:absent:absent) active=nftables ;;
+        iptables:absent:active:absent) active=iptables-nft ;;
+        iptables:absent:absent:active) active=iptables-legacy ;;
+        *)
+            echo "Docker firewall driver and hooked owner disagree (driver=$driver native=$native nft=$nft legacy=$legacy)" >&2
+            return 1
             ;;
     esac
-    PASTURESTACK_FIREWALL_BACKEND=$requested
+
+    # A Docker chain can be the sole NAT owner while older platform hooks in
+    # the opposite xtables frontend still process packets. Native nftables is
+    # also subject to an old xtables FORWARD DROP policy. Inspect only loaded
+    # legacy tables, and never mistake an orphan CATTLE chain for a live hook.
+    for frontend in iptables-nft iptables-legacy; do
+        [ "$active" != "$frontend" ] || continue
+        for table in nat filter; do
+            if [ "$frontend" = iptables-legacy ] && ! grep -qx "$table" <<<"$legacy_tables"; then
+                continue
+            fi
+            conflict=$(xt_conflicting_host_rules "$frontend" "$table") || return 1
+            if [ "$conflict" = active ]; then
+                echo "Conflicting $frontend $table CATTLE hook or FORWARD DROP policy remains active; migrate the host before starting the overlay" >&2
+                return 1
+            fi
+        done
+    done
+    if [ "$requested" != auto ] && [ "$requested" != "$active" ]; then
+        echo "Requested $requested but Docker uses $active; refusing to modify another firewall backend" >&2
+        return 1
+    fi
+    PASTURESTACK_FIREWALL_BACKEND=$active
     export PASTURESTACK_FIREWALL_BACKEND
 }
 
