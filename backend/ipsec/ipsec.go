@@ -516,8 +516,12 @@ func (o *Overlay) initiateHostWithRetry(host string) {
 		time.Sleep(time.Duration(i+1) * 5 * time.Second)
 	}
 
-	logrus.Errorf("Failed to recover CHILD_SA %s after %d attempts, restarting charon", logsafe.Value(child), ipsecInitiateAttempts)
-	o.restartCharonForRecovery(host)
+	// A peer can be unavailable during a normal host or Docker restart. Killing
+	// charon here also drops healthy associations with unrelated peers. The
+	// periodic health reconciliation will schedule another attempt if this
+	// CHILD_SA is still missing; reserve a charon restart for stale local peer
+	// identity, where retrying the same state cannot repair it.
+	logrus.Warnf("CHILD_SA %s is unavailable after %d attempts; periodic health reconciliation will retry", logsafe.Value(child), ipsecInitiateAttempts)
 }
 
 func (o *Overlay) childInstalled(child string) bool {
