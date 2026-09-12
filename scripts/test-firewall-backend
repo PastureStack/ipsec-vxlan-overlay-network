@@ -56,12 +56,41 @@ case " ${commands[*]} " in
 esac
 
 commands=()
+TEST_DOCKER_BACKEND=iptables-legacy
+PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
+resolve_firewall_backend
+[ "$PASTURESTACK_FIREWALL_BACKEND" = iptables-legacy ]
+[[ " ${commands[*]} " == *"iptables-legacy -t nat -S DOCKER"* ]]
+
+commands=()
 TEST_DOCKER_BACKEND=nftables
 PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
 if resolve_firewall_backend; then
     echo "Explicit legacy must fail when Docker is native nftables" >&2
     exit 1
 fi
+
+commands=()
+TEST_DOCKER_BACKEND=iptables-nft
+PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
+if resolve_firewall_backend; then
+    echo "Explicit legacy must fail when Docker uses iptables-nft" >&2
+    exit 1
+fi
+case " ${commands[*]} " in
+    *iptables-legacy*) echo "Mismatch probed legacy despite active Docker nft frontend" >&2; exit 1 ;;
+esac
+
+commands=()
+TEST_DOCKER_BACKEND=unknown
+PASTURESTACK_FIREWALL_BACKEND=iptables-legacy
+if resolve_firewall_backend; then
+    echo "Explicit legacy requires an already-loaded legacy NAT table" >&2
+    exit 1
+fi
+case " ${commands[*]} " in
+    *iptables-legacy*) echo "Absent legacy table must not trigger a module-loading probe" >&2; exit 1 ;;
+esac
 
 commands=()
 TEST_DOCKER_BACKEND=unknown
