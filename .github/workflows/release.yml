@@ -78,8 +78,14 @@ jobs:
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           source_sha="$(git rev-parse HEAD)"
           test "$source_sha" = "$(git rev-list -n 1 "$RELEASE_TAG")"
-          test "$source_sha" = "$GITHUB_SHA"
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$source_sha"
+          # A recovery run may use a newer, reviewed workflow on main while
+          # building evidence for the same immutable source tag.
+          if [ -n "$RESUME_DIGEST" ]; then
+            git merge-base --is-ancestor "$source_sha" "$GITHUB_SHA"
+          else
+            test "$source_sha" = "$GITHUB_SHA"
+          fi
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
           tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
           test "$(jq -r '.object.type' <<<"$tag_ref")" = tag
           tag_object_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
@@ -148,15 +154,17 @@ jobs:
           set -euo pipefail
           VERSION_OVERRIDE=0.14.28 ./scripts/build
           sha256sum --check evidence/product.sha256
-          VERSION_OVERRIDE=0.14.28 TAG=0.14.28 REPO=local/pasturestack \
-            IMAGE_REVISION="$SOURCE_SHA" ./scripts/package
-          test "$(wc -l < dist/images)" -eq 1
-          grep -Fx "$LOCAL_IMAGE" dist/images
-          test "$(docker image inspect "$LOCAL_IMAGE" \
-            --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.28
-          test "$(docker image inspect "$LOCAL_IMAGE" \
-            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
-          docker tag "$LOCAL_IMAGE" "$SERVICE_IMAGE"
+          if [ -z "$RESUME_DIGEST" ]; then
+            VERSION_OVERRIDE=0.14.28 TAG=0.14.28 REPO=local/pasturestack \
+              IMAGE_REVISION="$SOURCE_SHA" ./scripts/package
+            test "$(wc -l < dist/images)" -eq 1
+            grep -Fx "$LOCAL_IMAGE" dist/images
+            test "$(docker image inspect "$LOCAL_IMAGE" \
+              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.28
+            test "$(docker image inspect "$LOCAL_IMAGE" \
+              --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+            docker tag "$LOCAL_IMAGE" "$SERVICE_IMAGE"
+          fi
 
       - name: Re-scan the actual release image before any publication
         shell: bash
@@ -164,6 +172,30 @@ jobs:
           set -euo pipefail
           release_dir="$PWD/dist/release"
           mkdir -p "$release_dir"
+          if [ -n "$RESUME_DIGEST" ]; then
+            # Image layers are not byte-reproducible across runners; verify and
+            # scan the already published digest rather than a rebuilt image.
+            docker pull "$SERVICE_IMAGE@$RESUME_DIGEST"
+            docker tag "$SERVICE_IMAGE@$RESUME_DIGEST" "$SERVICE_IMAGE"
+            test "$(docker image inspect "$SERVICE_IMAGE" \
+              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.28
+            test "$(docker image inspect "$SERVICE_IMAGE" \
+              --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+            verification_container="$(docker create "$SERVICE_IMAGE")"
+            mkdir -p "$RUNNER_TEMP/published-ipsec-binaries"
+            trap 'docker rm -f "$verification_container" >/dev/null 2>&1 || true' EXIT
+            for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology; do
+              docker cp "$verification_container:/usr/bin/$binary" \
+                "$RUNNER_TEMP/published-ipsec-binaries/$binary"
+              cmp "bin/$binary" "$RUNNER_TEMP/published-ipsec-binaries/$binary"
+            done
+            docker cp "$verification_container:/usr/bin/firewall-backend.sh" \
+              "$RUNNER_TEMP/published-ipsec-binaries/firewall-backend.sh"
+            cmp package/firewall-backend.sh \
+              "$RUNNER_TEMP/published-ipsec-binaries/firewall-backend.sh"
+            docker rm "$verification_container" >/dev/null
+            trap - EXIT
+          fi
           docker pull "$TRIVY_IMAGE"
           cache="$RUNNER_TEMP/ipsec-release-trivy-cache"
           mkdir -p "$cache"
@@ -195,7 +227,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$TAG_OBJECT_SHA"
           release_status="$(curl --proto '=https' --tlsv1.2 --silent --show-error \
             --output "$RUNNER_TEMP/existing-release.json" --write-out '%{http_code}' \
@@ -232,7 +264,7 @@ jobs:
             test "$body_hash" = "$digest"
             printf '%s\n' "$digest"
           }
-          local_config="$(docker image inspect "$LOCAL_IMAGE" --format '{{.Id}}')"
+          local_config="$(docker image inspect "$SERVICE_IMAGE" --format '{{.Id}}')"
           [[ "$local_config" =~ ^sha256:[0-9a-f]{64}$ ]]
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           status="$(inspect_tag)"
@@ -245,7 +277,7 @@ jobs:
               digest="$(manifest_digest)"
               test "$digest" = "$RESUME_DIGEST"
               test "$(jq -er '.config.digest' "$manifest_body")" = "$local_config"
-              echo "Existing image digest and rebuilt image config match; skipping push."
+              echo "Existing image digest and verified published image config match; skipping push."
               ;;
             404)
               test -z "$RESUME_DIGEST" || {
@@ -258,6 +290,10 @@ jobs:
                 exit 1
               }
               docker push "$SERVICE_IMAGE"
+              for attempt in 1 2 3 4 5; do
+                test "$(inspect_tag)" = 200 && break
+                sleep "$attempt"
+              done
               test "$(inspect_tag)" = 200
               digest="$(manifest_digest)"
               test "$(jq -er '.config.digest' "$manifest_body")" = "$local_config"
