@@ -6,24 +6,17 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-The current Catalog coordinate is:
-
-```text
-ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.26
-```
-
-The `v0.14.27` source and image have been published with manifest digest
+The prior `v0.14.27` source and image were published with manifest digest
 `sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
-and release SBOM/provenance attestations. The current Catalog still uses
-`v0.14.26`; its separate `v0.14.27` template integration and host lifecycle
-gate remain pending. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, the
+and release SBOM/provenance attestations. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, that
 published image selected native nftables without modifying host rules, rejected
 an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
 integration test. That test is not a two-physical-host upgrade or reboot gate.
 Publishing the image alone does not change deployments.
 
-The next `v0.14.28` source candidate tightens host firewall detection. It is
-not a published image or Catalog default until its release and host gates pass.
+`v0.14.28` tightens host firewall detection. Publishing its image and updating
+Catalog are separate gates; source changes alone do not change a deployment.
+Check the Catalog version lock for the current deployment coordinate.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
@@ -61,8 +54,8 @@ The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names befor
 
 ## Host firewall backends
 
-The Catalog IPsec `overlay-router` runs in the host network namespace. In the
-candidate release, `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
+The Catalog IPsec `overlay-router` runs in the host network namespace. With
+`v0.14.28`, `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
 firewall driver from the mounted Docker socket and verifies that exactly one
 matching Docker-owned firewall backend has live hooks. An explicit selection
 is verified the same way; stale, mixed or mismatched Docker rules, reachable

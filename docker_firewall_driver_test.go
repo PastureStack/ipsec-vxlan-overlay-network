@@ -63,6 +63,12 @@ func TestLegacyLoadedTables(t *testing.T) {
 	if got, err := legacyLoadedTables(path); err != nil || got != "nat\nfilter\n" {
 		t.Fatalf("loaded legacy tables not preserved: %q, %v", got, err)
 	}
+	if err := os.WriteFile(path, []byte("nat\nFORGED log entry\r\n\x1b[31mfilter\nfilter\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := legacyLoadedTables(path); err != nil || got != "nat\nfilter\n" {
+		t.Fatalf("non-table procfs lines must not reach stdout: %q, %v", got, err)
+	}
 	if _, err := legacyLoadedTables(dir); err == nil {
 		t.Fatal("non-ENOENT procfs read failure must fail closed")
 	}

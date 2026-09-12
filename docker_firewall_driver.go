@@ -71,5 +71,16 @@ func legacyLoadedTables(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read loaded legacy netfilter tables: %w", err)
 	}
-	return string(tables), nil
+	// Only nat and filter are consumed by the host firewall selector. Emit
+	// canonical names rather than forwarding arbitrary procfs bytes to stdout.
+	var loaded strings.Builder
+	for _, name := range strings.Split(string(tables), "\n") {
+		switch name {
+		case "nat":
+			loaded.WriteString("nat\n")
+		case "filter":
+			loaded.WriteString("filter\n")
+		}
+	}
+	return loaded.String(), nil
 }
