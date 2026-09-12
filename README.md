@@ -12,11 +12,15 @@ The current Catalog coordinate is:
 ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.26
 ```
 
-This source tree targets the next numeric candidate, `v0.14.27`. It has not
-been published, so the build commands below create a candidate only and do not
-change the current deployment coordinate. The latest GitHub Release is
-`v0.14.25`; the Catalog's `v0.14.26` image therefore remains deployment
-evidence rather than a complete matching Release-and-image publication.
+The `v0.14.27` source and image have been published with manifest digest
+`sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
+and release SBOM/provenance attestations. The current Catalog still uses
+`v0.14.26`; its separate `v0.14.27` template integration and host lifecycle
+gate remain pending. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, the
+published image selected native nftables without modifying host rules, rejected
+an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
+integration test. That test is not a two-physical-host upgrade or reboot gate.
+Publishing the image alone does not change deployments.
 
 The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
 
@@ -39,7 +43,7 @@ Compatibility aliases remain only where the preserved control-plane protocol sti
 
 ## Build and verification
 
-The candidate build is containerized and requires Docker on a Linux AMD64 host:
+The build is containerized and requires Docker on a Linux AMD64 host:
 
 ```sh
 make test
