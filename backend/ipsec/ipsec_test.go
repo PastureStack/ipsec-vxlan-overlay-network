@@ -30,8 +30,12 @@ func TestIKEConnectionUniquenessIsSentToVICI(t *testing.T) {
 	if loaded["remote_addrs"].([]interface{})[0] != "192.0.2.20" {
 		t.Fatalf("remote address was lost: %v", loaded["remote_addrs"])
 	}
-	if _, ok := loaded["children"].(map[string]interface{})["child-192.0.2.20"]; !ok {
+	child, ok := loaded["children"].(map[string]interface{})["child-192.0.2.20"]
+	if !ok {
 		t.Fatal("CHILD_SA was lost from VICI request")
+	}
+	if got := child.(map[string]interface{})["close_action"]; got != "none" {
+		t.Fatalf("VICI close_action = %v, want none", got)
 	}
 }
 
@@ -57,6 +61,52 @@ func TestIKEConnectionCustomTemplateUniqueness(t *testing.T) {
 				t.Fatalf("unique policy = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestDefaultChildCloseActionDefersRecoveryToHealthReconciliation(t *testing.T) {
+	templates := Templates{ConfigDir: t.TempDir()}
+	if err := templates.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if got := templates.NewChildSaConf().CloseAction; got != "none" {
+		t.Fatalf("default close_action = %q, want none", got)
+	}
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, childSaConfName), []byte(`{"close_action":"start"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	templates = Templates{ConfigDir: configDir}
+	if err := templates.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if got := templates.NewChildSaConf().CloseAction; got != "start" {
+		t.Fatalf("explicit close_action = %q, want start", got)
+	}
+}
+
+func TestIdleDuplicateIKEIDsOnlyReapsUnusedLongLivedManagedPeer(t *testing.T) {
+	makeSA := func(id, host, age, bytes string) goStrongswanVici.IkeSa {
+		return goStrongswanVici.IkeSa{
+			Uniqueid: id, Remote_host: host, Local_id: "192.0.2.10", Remote_id: host,
+			State: "ESTABLISHED", Established: age,
+			Child_sas: map[string]goStrongswanVici.Child_sas{
+				"child-" + host + "-" + id: {State: "INSTALLED", Reqid: reqIdStr, Bytes_in: bytes},
+			},
+		}
+	}
+	sas := []map[string]goStrongswanVici.IkeSa{
+		{"conn-192.0.2.20": makeSA("3", "192.0.2.20", "180", "0")},
+		{"conn-192.0.2.20": makeSA("4", "192.0.2.20", "180", "400")},
+		{"conn-192.0.2.21": makeSA("5", "192.0.2.21", "180", "0")},
+		{"conn-192.0.2.21": makeSA("6", "192.0.2.21", "180", "0")},
+		{"conn-192.0.2.22": makeSA("7", "192.0.2.22", "20", "0")},
+		{"conn-192.0.2.22": makeSA("8", "192.0.2.22", "20", "50")},
+		{"other-192.0.2.20": makeSA("9", "192.0.2.20", "180", "0")},
+	}
+	ids := idleDuplicateIKEIDs(sas, map[string]bool{"192.0.2.20": true, "192.0.2.21": true, "192.0.2.22": true})
+	if len(ids) != 1 || ids[0] != "3" {
+		t.Fatalf("idle duplicate IDs = %v, want [3]", ids)
 	}
 }
 

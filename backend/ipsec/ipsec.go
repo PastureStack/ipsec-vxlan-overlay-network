@@ -30,6 +30,7 @@ const (
 	pidFile  = "/var/run/charon.pid"
 
 	ipsecHealthCheckInterval = 30 * time.Second
+	duplicateSAQuietPeriod   = 120 * time.Second
 	ipsecInitiateDelay       = 5 * time.Second
 	ipsecInitiateAttempts    = 3
 	ipsecInitiateTimeout     = "12"
@@ -491,13 +492,14 @@ func (o *Overlay) reconcileIpsecHealth() error {
 		o.scheduleInitiatesLocked(missingHosts, 0)
 		o.Unlock()
 	}
-	return o.reapDeletingDuplicateSAs(expectedHosts)
+	return o.reapDuplicateSAs(expectedHosts)
 }
 
-// A peer may disappear while strongSwan is sending DELETE for a replaced SA.
-// Once its replacement has an installed CHILD_SA, remove only the old local SA
-// by unique ID; never terminate a connection by name or touch unrelated peers.
-func (o *Overlay) reapDeletingDuplicateSAs(expectedHosts map[string]bool) error {
+// Reap only unambiguous redundant associations by unique local ID.  A peer
+// restart can leave a DELETING SA; an upgrade can also leave an ESTABLISHED
+// pair where only one CHILD has carried traffic for at least four health
+// cycles.  Never terminate by connection name or touch another peer's SAs.
+func (o *Overlay) reapDuplicateSAs(expectedHosts map[string]bool) error {
 	client, err := getClient()
 	if err != nil {
 		return err
@@ -508,7 +510,9 @@ func (o *Overlay) reapDeletingDuplicateSAs(expectedHosts map[string]bool) error 
 	if err != nil {
 		return err
 	}
-	for _, id := range deletingDuplicateIKEIDs(sas, expectedHosts) {
+	ids := deletingDuplicateIKEIDs(sas, expectedHosts)
+	ids = append(ids, idleDuplicateIKEIDs(sas, expectedHosts)...)
+	for _, id := range ids {
 		response, err := client.Request("terminate", map[string]interface{}{
 			"ike-id":  id,
 			"force":   "yes",
@@ -523,6 +527,54 @@ func (o *Overlay) reapDeletingDuplicateSAs(expectedHosts map[string]bool) error 
 		logrus.Infof("Removed stale duplicate IKE_SA %s", logsafe.Value(id))
 	}
 	return nil
+}
+
+func idleDuplicateIKEIDs(sas []map[string]goStrongswanVici.IkeSa, expectedHosts map[string]bool) []string {
+	type candidate struct {
+		id      string
+		traffic uint64
+	}
+	byPeer := map[string][]candidate{}
+	for _, saMap := range sas {
+		for name, sa := range saMap {
+			if !expectedHosts[sa.Remote_host] || name != "conn-"+sa.Remote_host || sa.State != "ESTABLISHED" ||
+				len(sa.Tasks_active) != 0 || len(sa.Tasks_queued) != 0 || sa.Local_id == "" || sa.Remote_id == "" {
+				continue
+			}
+			age, ageErr := strconv.ParseUint(sa.Established, 10, 64)
+			id, idErr := strconv.ParseUint(sa.Uniqueid, 10, 32)
+			if ageErr != nil || age < uint64(duplicateSAQuietPeriod/time.Second) || idErr != nil || id == 0 {
+				continue
+			}
+			var traffic uint64
+			installed := false
+			for childName, child := range sa.Child_sas {
+				if child.State != "INSTALLED" || canonicalChildName(childName) != "child-"+sa.Remote_host || child.Reqid != reqIdStr {
+					continue
+				}
+				installed = true
+				traffic += child.GetBytesIn() + child.GetBytesOut()
+			}
+			if !installed {
+				continue
+			}
+			key := sa.Remote_host + "\x00" + sa.Local_id + "\x00" + sa.Remote_id
+			byPeer[key] = append(byPeer[key], candidate{id: sa.Uniqueid, traffic: traffic})
+		}
+	}
+	var ids []string
+	for _, group := range byPeer {
+		// A two-SA pair with exactly one used tunnel is distinguishable from
+		// IKE reauthentication or a partially established peer.  Leave all
+		// ambiguous groups alone rather than risking the live data path.
+		if len(group) == 2 && group[0].traffic == 0 && group[1].traffic > 0 {
+			ids = append(ids, group[0].id)
+		} else if len(group) == 2 && group[1].traffic == 0 && group[0].traffic > 0 {
+			ids = append(ids, group[1].id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func deletingDuplicateIKEIDs(sas []map[string]goStrongswanVici.IkeSa, expectedHosts map[string]bool) []string {

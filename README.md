@@ -49,7 +49,7 @@ restart path. This does not change firewall ownership or the selected Docker
 firewall backend. Catalog pinning and live peer-restart verification remain
 separate gates.
 
-The `v0.14.32` change is scoped to IPsec peer lifecycle. Each managed IKE
+The `v0.14.32` change was scoped to IPsec peer lifecycle. Each managed IKE
 connection requests strongSwan's per-peer `unique=replace` policy, including
 older custom templates that omit the option; an explicit template policy is
 preserved. The health reconciler force-removes only a `DELETING` IKE_SA for
@@ -57,8 +57,20 @@ which the same managed peer already has an established replacement with an
 installed CHILD_SA. It never terminates by connection name or changes host
 firewall rules. The isolated two-node regression test now forces concurrent
 initiation and a one-sided peer restart, and requires exactly one working SA
-on each side. This source change is not proof that a Catalog or live host has
-already been upgraded.
+on each side within a bounded convergence window while encrypted traffic
+continues. This source change is not proof that a Catalog or live host has
+already been upgraded. A subsequent live rolling upgrade on two hosts showed
+that `unique=replace` and cleanup of `DELETING` SAs alone did not converge:
+both peers retained two established SAs, with only one carrying traffic.
+
+`v0.14.33` keeps the 30-second health reconciler as the owner of missing-SA
+recovery and changes the default CHILD `close_action` to `none`, avoiding a
+second automatic initiation path after peer close. Explicit custom CHILD
+templates remain unchanged. After four health cycles, the reconciler may
+terminate only an idle established duplicate for the same managed peer when
+exactly one other installed association has carried traffic. Ambiguous or
+recent pairs, unrelated peers, and other connections are left untouched. The
+live two-host upgrade and traffic gates remain separate from this source fix.
 
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
@@ -84,8 +96,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.32 make build
-TAG=0.14.32 make package
+VERSION_OVERRIDE=0.14.33 make build
+TAG=0.14.33 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
