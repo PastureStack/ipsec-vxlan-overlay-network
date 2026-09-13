@@ -139,6 +139,7 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           IMAGE="$IMAGE" ./scripts/integration-two-node-vxlan
+          IMAGE="$IMAGE" ./scripts/integration-optional-cni-isolated
           IMAGE="$IMAGE" \
             OLD_IMAGE='ghcr.io/pasturestack/ipsec-vxlan-overlay-network@sha256:4d8a51e04bdd27fea3cb2949158103d43e0d2470907c328f76f7a0c6ccec8608' \
             ./scripts/integration-two-node-ipsec

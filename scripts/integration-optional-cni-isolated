@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Exercise the exact CNI binaries bundled in the catalog-pinned image without
+# changing the host namespace, managed networks, or Docker daemon settings.
+image=${IMAGE:?Set IMAGE to the exact packaged image to verify}
+docker image inspect "$image" >/dev/null
+
+docker run --rm -i --privileged --network none --entrypoint /bin/bash "$image" -s <<'CONTAINER'
+set -euo pipefail
+export CNI_PATH=/opt/cni/bin CNI_CONTAINERID=optional-cni-smoke CNI_IFNAME=eth0
+
+check_link() {
+    local namespace=$1 address=$2 gateway=$3
+    ip netns exec "$namespace" ip -4 address show eth0 | grep -q "$address"
+    ip netns exec "$namespace" ping -c 2 -W 2 "$gateway" >/dev/null
+}
+
+# Per-host subnet: address allocation and bridge traffic stay inside this
+# disposable container's network and mount namespaces.
+ip netns add qa-perhost
+export CNI_NETNS=/run/netns/qa-perhost 'CNI_ARGS=IgnoreUnknown=1;MACAddress=02:42:37:ff:01:01'
+perhost='{"cniVersion":"0.1.0","name":"qa-perhost","type":"pasture-bridge","bridge":"brphqa","bridgeSubnet":"10.55.243.0/24","isDefaultGateway":true,"hostNat":false,"ipam":{"type":"host-local-cni-ipam","subnet":"10.55.243.0/24","dataDir":"/tmp/cni-state"}}'
+if ! result=$(CNI_COMMAND=ADD /opt/cni/bin/pasture-bridge <<<"$perhost"); then
+    printf 'per-host CNI ADD: %s\n' "$result" >&2
+    exit 1
+fi
+check_link qa-perhost 10.55.243. 10.55.243.1
+CNI_COMMAND=DEL /opt/cni/bin/pasture-bridge <<<"$perhost" >/dev/null
+if ip netns exec qa-perhost ip link show eth0 >/dev/null 2>&1; then
+    echo 'per-host CNI DEL left eth0 behind' >&2
+    exit 1
+fi
+ip netns del qa-perhost
+echo 'PER_HOST_CNI=pass'
+
+# Flat bridge: the physical LAN bridge is represented by a pre-created
+# bridge inside this container. A direct address avoids depending on a real
+# platform Metadata API; the Metadata lookup path has its own source tests.
+ip link add brflatqa type bridge
+ip address add 10.55.244.1/24 dev brflatqa
+ip link set brflatqa up
+ip netns add qa-flat
+export CNI_NETNS=/run/netns/qa-flat 'CNI_ARGS=IgnoreUnknown=1;MACAddress=02:42:37:ff:01:02;IPAddress=10.55.244.2/24'
+flat='{"cniVersion":"0.1.0","name":"qa-flat","type":"pasture-bridge","bridge":"brflatqa","bridgeSubnet":"10.55.244.1/24","skipBridgeConfigureIP":true,"skipFastPath":true,"hostNat":false,"ipam":{"type":"flat-cni-ipam","metadataAddress":"169.254.169.250"}}'
+if ! result=$(CNI_COMMAND=ADD /opt/cni/bin/pasture-bridge <<<"$flat"); then
+    printf 'flat CNI ADD: %s\n' "$result" >&2
+    exit 1
+fi
+check_link qa-flat 10.55.244.2 10.55.244.1
+CNI_COMMAND=DEL /opt/cni/bin/pasture-bridge <<<"$flat" >/dev/null
+if ip netns exec qa-flat ip link show eth0 >/dev/null 2>&1; then
+    echo 'flat CNI DEL left eth0 behind' >&2
+    exit 1
+fi
+ip netns del qa-flat
+echo 'FLAT_CNI=pass'
+CONTAINER
