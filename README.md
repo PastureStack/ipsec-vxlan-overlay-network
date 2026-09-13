@@ -102,6 +102,13 @@ TAG=0.14.33 make package
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
 
+The release gate also runs `scripts/integration-optional-cni-isolated` against
+the image it just packaged. Inside a disposable, network-isolated container it
+checks the bundled per-host-subnet and flat-bridge CNI binaries through ADD,
+bridge connectivity, and DEL. A local reproduction must set `IMAGE` to the
+exact image under review. This does not replace a live Catalog, Metadata API,
+host-port, cross-host, or host-reboot acceptance test.
+
 The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names before comparing them with configured peer names. This prevents a VICI unique-ID suffix from being misclassified as a missing SA during a rolling replacement.
 
 ## Host firewall backends
