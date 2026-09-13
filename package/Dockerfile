@@ -89,7 +89,7 @@ RUN set -eux; \
     tar -xzf /tmp/cni.tgz -C /tmp/cni ./loopback; \
     tar -xzf /tmp/cni-bridge.tgz -C /tmp/cni-bridge; \
     install -m 0755 /tmp/cni/loopback /opt/cni/bin/loopback; \
-    install -m 0755 /tmp/cni-bridge/rancher-cni-bridge /opt/cni/bin/pasture-bridge-core; \
+    install -m 0755 /tmp/cni-bridge/rancher-bridge /opt/cni/bin/pasture-bridge-core; \
     chmod 0755 /usr/bin/weave-router; \
     rm -rf /tmp/cni.tgz /tmp/cni-bridge.tgz /tmp/cni /tmp/cni-bridge
 
