@@ -38,16 +38,20 @@ echo 'PER_HOST_CNI=pass'
 # bridge inside this container. A direct address avoids depending on a real
 # platform Metadata API; the Metadata lookup path has its own source tests.
 ip link add brflatqa type bridge
-ip address add 10.55.244.1/24 dev brflatqa
+ip address add 10.55.244.2/24 dev brflatqa
 ip link set brflatqa up
 ip netns add qa-flat
-export CNI_NETNS=/run/netns/qa-flat 'CNI_ARGS=IgnoreUnknown=1;MACAddress=02:42:37:ff:01:02;IPAddress=10.55.244.2/24'
-flat='{"cniVersion":"0.1.0","name":"qa-flat","type":"pasture-bridge","bridge":"brflatqa","bridgeSubnet":"10.55.244.1/24","skipBridgeConfigureIP":true,"skipFastPath":true,"hostNat":false,"ipam":{"type":"flat-cni-ipam","metadataAddress":"169.254.169.250"}}'
+export CNI_NETNS=/run/netns/qa-flat 'CNI_ARGS=IgnoreUnknown=1;MACAddress=02:42:37:ff:01:02;IPAddress=10.55.244.3/24'
+flat='{"cniVersion":"0.1.0","name":"qa-flat","type":"pasture-bridge","bridge":"brflatqa","bridgeSubnet":"10.55.244.0/24","skipBridgeConfigureIP":true,"skipFastPath":true,"hostNat":false,"ipam":{"type":"flat-cni-ipam","metadataAddress":"169.254.169.250"}}'
 if ! result=$(CNI_COMMAND=ADD /opt/cni/bin/pasture-bridge <<<"$flat"); then
     printf 'flat CNI ADD: %s\n' "$result" >&2
     exit 1
 fi
-check_link qa-flat 10.55.244.2 10.55.244.1
+check_link qa-flat 10.55.244.3 10.55.244.2
+if [[ $(ip -4 -o address show dev brflatqa | wc -l) -ne 1 ]] || ! ip -4 address show dev brflatqa | grep -q '10.55.244.2/24'; then
+    echo 'flat CNI changed the preconfigured bridge address' >&2
+    exit 1
+fi
 CNI_COMMAND=DEL /opt/cni/bin/pasture-bridge <<<"$flat" >/dev/null
 if ip netns exec qa-flat ip link show eth0 >/dev/null 2>&1; then
     echo 'flat CNI DEL left eth0 behind' >&2

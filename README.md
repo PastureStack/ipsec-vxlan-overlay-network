@@ -124,8 +124,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.35 make build
-TAG=0.14.35 make package
+VERSION_OVERRIDE=0.14.36 make build
+TAG=0.14.36 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
@@ -136,6 +136,11 @@ checks the bundled per-host-subnet and flat-bridge CNI binaries through ADD,
 bridge connectivity, and DEL. A local reproduction must set `IMAGE` to the
 exact image under review. This does not replace a live Catalog, Metadata API,
 host-port, cross-host, or host-reboot acceptance test.
+
+The flat-network gate deliberately uses a preconfigured bridge address that
+differs from the subnet's network address and checks that CNI does not add a
+second address. The packaged bridge compatibility binary is v0.7.2, the first
+release in this dependency line that recognizes `skipBridgeConfigureIP`.
 
 The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names before comparing them with configured peer names. This prevents a VICI unique-ID suffix from being misclassified as a missing SA during a rolling replacement.
 
