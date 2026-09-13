@@ -90,7 +90,7 @@ cross-host TCP, local Metadata/DNS, and HTTPS egress passed in both workload
 namespaces. Startup is asynchronous, so a service-level healthy status alone
 must not be used as proof that a restarted workload has acquired its IP.
 
-The `v0.14.35` candidate addresses a separate rolling-upgrade handoff: a
+`v0.14.35` addressed a separate rolling-upgrade handoff: a
 replacement connectivity-check can briefly share the prior generation's
 network namespace while the old sidecar still owns TCP 80. It waits at most
 90 seconds for that listener to leave, retrying only `EADDRINUSE`; an unrelated
@@ -98,7 +98,7 @@ bind error or exhausted deadline still fails clearly. This stays inside the
 connectivity-check module and does not alter host firewall rules, Docker
 backend selection, or the router's port 8111 ownership. Source tests hold and
 release the port and verify the bounded failure path. Image publication,
-Catalog pinning, and live upgrade acceptance remain separate gates.
+Catalog pinning, and live upgrade acceptance are separate gates for each release.
 
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
