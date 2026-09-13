@@ -12,6 +12,7 @@ PastureStack names are the public interface for new deployments. A limited set o
 - XFRM and host-route variables: `PASTURESTACK_NETWORK_XFRM_*`, `PASTURESTACK_NETWORK_RUN_IN_HOST_NETNS`, and `PASTURESTACK_NETWORK_SYNC_HOST_ROUTES`
 - Host firewall selection: `PASTURESTACK_FIREWALL_BACKEND=auto|nftables|iptables-nft|iptables-legacy` for the IPsec host-XFRM router. From `v0.14.28`, it reads Docker's actual `/info.FirewallBackend.Driver` from the mounted Unix socket and then validates the uniquely active, matching host firewall hooks. An old Docker release with no native nftables support may omit this API field; a Docker 29+ release omitting it is ambiguous and fails closed. A mounted Unix socket is a privileged API capability even if its bind mount says `:ro`.
 - CNI log: `/var/log/pasturestack-cni.log`
+- Flat CNI: the bundled `rancher-cni-bridge` v0.7.2 must honor `skipBridgeConfigureIP: true`. The Layer 2 Catalog template uses an operator-owned bridge; the CNI driver must not add a gateway address or otherwise reconfigure that bridge. The isolated image gate checks this contract with a real network namespace.
 - Platform CA: `/var/lib/pasturestack/etc/ssl/ca.crt`
 
 ## Required compatibility identifiers
