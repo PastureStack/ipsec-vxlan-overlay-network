@@ -49,12 +49,13 @@ for script in scripts/* package/*.sh package/update-platform-ca; do
     bash -n "$script"
 done
 
-version=${VERSION_OVERRIDE:-0.14.33}
+version=${VERSION_OVERRIDE:-0.14.34}
 first=$(mktemp -d)
 trap 'rm -rf "$first"' EXIT
 VERSION_OVERRIDE="$version" ./scripts/build
-cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology "$first/"
+cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology bin/pasture-cni-resolver "$first/"
 rm -rf bin
 VERSION_OVERRIDE="$version" ./scripts/build
 cmp "$first/ipsec-vxlan-overlay-network" bin/ipsec-vxlan-overlay-network
 cmp "$first/ipsec-vxlan-overlay-topology" bin/ipsec-vxlan-overlay-topology
+cmp "$first/pasture-cni-resolver" bin/pasture-cni-resolver

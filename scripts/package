@@ -70,6 +70,7 @@ stage_binary() {
 
 install -m 0755 bin/ipsec-vxlan-overlay-network package/ipsec-vxlan-overlay-network
 install -m 0755 bin/ipsec-vxlan-overlay-topology package/ipsec-vxlan-overlay-topology
+install -m 0755 bin/pasture-cni-resolver package/pasture-cni-resolver
 stage_binary metadata-cni-ipam "${METADATA_CNI_IPAM_BINARY:-}" "$METADATA_CNI_IPAM_URL" "$METADATA_CNI_IPAM_SHA256"
 stage_binary per-host-subnet "${PER_HOST_SUBNET_BINARY:-}" "$PER_HOST_SUBNET_URL" "$PER_HOST_SUBNET_SHA256"
 stage_binary host-local-cni-ipam "${HOST_LOCAL_CNI_IPAM_BINARY:-}" "$HOST_LOCAL_CNI_IPAM_URL" "$HOST_LOCAL_CNI_IPAM_SHA256"

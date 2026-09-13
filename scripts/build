@@ -18,6 +18,12 @@ CGO_ENABLED=0 go build \
     -buildvcs=false \
     -ldflags "-buildid= -X main.version=$VERSION -s -w" \
     -o bin/ipsec-vxlan-overlay-topology ./cmd/ipsec-vxlan-overlay-network
+CGO_ENABLED=0 go build \
+    -mod=vendor \
+    -trimpath \
+    -buildvcs=false \
+    -ldflags "-buildid= -s -w" \
+    -o bin/pasture-cni-resolver ./cmd/pasture-cni-resolver
 ln -sf ipsec-vxlan-overlay-network bin/ipsec-vxlan-connectivity-check
 ln -sf ipsec-vxlan-overlay-network bin/connectivity-check
 ln -sf ipsec-vxlan-overlay-network bin/rancher-net

@@ -72,6 +72,15 @@ exactly one other installed association has carried traffic. Ambiguous or
 recent pairs, unrelated peers, and other connections are left untouched. The
 live two-host upgrade and traffic gates remain separate from this source fix.
 
+The next release adds a bounded CNI entrypoint adapter for the official
+per-host-subnet template. Only `bridgeSubnet`, `ipam.subnet`, and optional IP
+range fields containing an explicit `__host_label__:` reference are resolved
+from the local host Metadata API. Literal flat-network CNI documents are
+forwarded byte-for-byte to the preserved bridge binary. Missing required
+labels, malformed IPv4 values, mismatched bridge/IPAM subnets, or metadata
+errors fail before changing the bridge. This does not select or alter the host
+firewall backend; Network Plugin Manager continues to own NAT and host ports.
+
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
 separately and retains its raw findings; only exact, already-reviewed
@@ -96,8 +105,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.33 make build
-TAG=0.14.33 make package
+VERSION_OVERRIDE=0.14.34 make build
+TAG=0.14.34 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.

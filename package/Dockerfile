@@ -89,12 +89,13 @@ RUN set -eux; \
     tar -xzf /tmp/cni.tgz -C /tmp/cni ./loopback; \
     tar -xzf /tmp/cni-bridge.tgz -C /tmp/cni-bridge; \
     install -m 0755 /tmp/cni/loopback /opt/cni/bin/loopback; \
-    install -m 0755 /tmp/cni-bridge/rancher-cni-bridge /opt/cni/bin/pasture-bridge; \
+    install -m 0755 /tmp/cni-bridge/rancher-cni-bridge /opt/cni/bin/pasture-bridge-core; \
     chmod 0755 /usr/bin/weave-router; \
     rm -rf /tmp/cni.tgz /tmp/cni-bridge.tgz /tmp/cni /tmp/cni-bridge
 
 COPY ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology per-host-subnet mount-propagation /usr/bin/
 COPY metadata-cni-ipam host-local-cni-ipam flat-cni-ipam /opt/cni/bin/
+COPY pasture-cni-resolver /opt/cni/bin/pasture-bridge
 COPY start.sh start-ipsec.sh start-vxlan.sh start-flat.sh start-cni-driver.sh firewall-backend.sh wait-for-overlay-port.sh update-platform-ca /usr/bin/
 COPY pasturestack-entrypoint.sh /pasturestack-entrypoint.sh
 COPY strongswan-pasturestack.conf /etc/strongswan.d/pasturestack-overlay.conf
@@ -118,6 +119,8 @@ RUN set -eux; \
         /usr/bin/wait-for-overlay-port.sh \
         /usr/bin/update-platform-ca \
         /opt/cni/bin/metadata-cni-ipam \
+        /opt/cni/bin/pasture-bridge \
+        /opt/cni/bin/pasture-bridge-core \
         /opt/cni/bin/host-local-cni-ipam \
         /opt/cni/bin/flat-cni-ipam; \
     ln -s /usr/lib/ipsec/charon /usr/bin/charon; \
