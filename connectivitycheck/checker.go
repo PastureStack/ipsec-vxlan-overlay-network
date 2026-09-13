@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/rancher/go-rancher-metadata/metadata"
@@ -23,6 +24,8 @@ const (
 	defaultCheckInterval   = 5000
 	defaultPeerTimeout     = 1000
 	defaultServerPort      = 80
+	portHandoffMaxWait     = 90 * time.Second
+	portHandoffPoll        = 250 * time.Millisecond
 
 	metadataURLTemplate           = "http://%s/2016-07-29"
 	connectivityCheckServiceName  = "connectivity-check"
@@ -177,7 +180,7 @@ func (c *checker) startServer() error {
 	mux.HandleFunc("/ping", c.ping)
 	mux.HandleFunc("/connectivity", c.connectivity)
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", c.port))
+	listener, err := listenWithPortHandoff(c.port, portHandoffMaxWait)
 	if err != nil {
 		return fmt.Errorf("listen on port %d: %w", c.port, err)
 	}
@@ -190,6 +193,36 @@ func (c *checker) startServer() error {
 		}
 	}()
 	return nil
+}
+
+// A rolling Catalog upgrade can briefly start the replacement sidecar in the
+// prior generation's network namespace. Wait only for that sidecar's own
+// listener to leave; do not change firewall rules or swallow other bind errors.
+func listenWithPortHandoff(port int, maxWait time.Duration) (net.Listener, error) {
+	address := fmt.Sprintf(":%d", port)
+	deadline := time.Now().Add(maxWait)
+	logged := false
+	for {
+		listener, err := net.Listen("tcp", address)
+		if err == nil {
+			return listener, nil
+		}
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			return nil, err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("prior listener did not release %s within %s: %w", address, maxWait, err)
+		}
+		if !logged {
+			logrus.Infof("Waiting up to %s for prior connectivity-check listener on %s", maxWait, address)
+			logged = true
+		}
+		if remaining > portHandoffPoll {
+			remaining = portHandoffPoll
+		}
+		time.Sleep(remaining)
+	}
 }
 
 func (c *checker) watch() {
