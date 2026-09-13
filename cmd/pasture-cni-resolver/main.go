@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 const (
 	bridgeBinary = "/opt/cni/bin/pasture-bridge-core"
-	metadataURL  = "http://169.254.169.250/2016-07-29/self/host"
+	metadataURL  = "http://169.254.169.250/2016-07-29/self/host/labels/"
 	labelPrefix  = "__host_label__:"
 	maxConfig    = 1 << 20
 )
@@ -27,7 +28,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "pasture-bridge: invalid CNI config size")
 		os.Exit(1)
 	}
-	resolved, err := resolveConfig(input, readHostLabels)
+	resolved, err := resolveConfig(input, readHostLabel)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pasture-bridge:", err)
 		os.Exit(1)
@@ -49,7 +50,7 @@ func main() {
 // resolveConfig keeps literal CNI documents byte-for-byte compatible. Only
 // the per-host subnet fields explicitly used by this network driver expand
 // host-label references before the bridge and its IPAM child receive stdin.
-func resolveConfig(input []byte, getLabels func() (map[string]string, error)) ([]byte, error) {
+func resolveConfig(input []byte, getLabel func(string) (string, error)) ([]byte, error) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(input, &root); err != nil || root == nil {
 		return nil, fmt.Errorf("invalid CNI JSON")
@@ -66,7 +67,7 @@ func resolveConfig(input []byte, getLabels func() (map[string]string, error)) ([
 		optional bool
 	}
 	fields := []field{{root, "bridgeSubnet", false}, {ipam, "subnet", false}, {ipam, "rangeStart", true}, {ipam, "rangeEnd", true}}
-	var labels map[string]string
+	labels := make(map[string]string)
 	changed := false
 	for _, target := range fields {
 		if target.object == nil {
@@ -81,17 +82,19 @@ func resolveConfig(input []byte, getLabels func() (map[string]string, error)) ([
 			continue
 		}
 		key := strings.TrimSpace(strings.TrimPrefix(value, labelPrefix))
-		if key == "" || strings.ContainsAny(key, " \t\r\n") {
+		if key == "" || strings.ContainsAny(key, " \t\r\n/\\?#") {
 			return nil, fmt.Errorf("invalid host-label reference in %s", target.name)
 		}
-		if labels == nil {
+		resolved, cached := labels[key]
+		if !cached {
 			var err error
-			labels, err = getLabels()
+			resolved, err = getLabel(key)
 			if err != nil {
-				return nil, fmt.Errorf("read local host labels: %w", err)
+				return nil, fmt.Errorf("read local host label %q: %w", key, err)
 			}
+			labels[key] = resolved
 		}
-		resolved := strings.TrimSpace(labels[key])
+		resolved = strings.TrimSpace(resolved)
 		if resolved == "" {
 			if target.optional {
 				delete(target.object, target.name)
@@ -147,7 +150,7 @@ func resolveConfig(input []byte, getLabels func() (map[string]string, error)) ([
 	return json.Marshal(root)
 }
 
-func readHostLabels() (map[string]string, error) {
+func readHostLabel(key string) (string, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	client := &http.Client{
@@ -155,26 +158,24 @@ func readHostLabels() (map[string]string, error) {
 		Transport:     transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	response, err := client.Get(metadataURL)
+	return fetchHostLabel(client, metadataURL, key)
+}
+
+func fetchHostLabel(client *http.Client, baseURL, key string) (string, error) {
+	response, err := client.Get(baseURL + url.PathEscape(key))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("metadata returned HTTP %d", response.StatusCode)
+		return "", fmt.Errorf("metadata returned HTTP %d", response.StatusCode)
 	}
-	var host struct {
-		Labels map[string]string `json:"labels"`
+	data, err := io.ReadAll(io.LimitReader(response.Body, 1025))
+	if err != nil || len(data) > 1024 {
+		return "", fmt.Errorf("invalid local host label size")
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, 65537))
-	if err != nil || len(data) > 65536 {
-		return nil, fmt.Errorf("invalid local host metadata size")
-	}
-	if err := json.Unmarshal(data, &host); err != nil {
-		return nil, fmt.Errorf("invalid local host metadata: %w", err)
-	}
-	if host.Labels == nil {
-		return nil, fmt.Errorf("local host metadata has no labels")
-	}
-	return host.Labels, nil
+	return strings.TrimSpace(string(data)), nil
 }
