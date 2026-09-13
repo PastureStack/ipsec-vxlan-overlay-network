@@ -90,6 +90,16 @@ cross-host TCP, local Metadata/DNS, and HTTPS egress passed in both workload
 namespaces. Startup is asynchronous, so a service-level healthy status alone
 must not be used as proof that a restarted workload has acquired its IP.
 
+The `v0.14.35` candidate addresses a separate rolling-upgrade handoff: a
+replacement connectivity-check can briefly share the prior generation's
+network namespace while the old sidecar still owns TCP 80. It waits at most
+90 seconds for that listener to leave, retrying only `EADDRINUSE`; an unrelated
+bind error or exhausted deadline still fails clearly. This stays inside the
+connectivity-check module and does not alter host firewall rules, Docker
+backend selection, or the router's port 8111 ownership. Source tests hold and
+release the port and verify the bounded failure path. Image publication,
+Catalog pinning, and live upgrade acceptance remain separate gates.
+
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
 separately and retains its raw findings; only exact, already-reviewed
@@ -114,8 +124,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.34 make build
-TAG=0.14.34 make package
+VERSION_OVERRIDE=0.14.35 make build
+TAG=0.14.35 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
