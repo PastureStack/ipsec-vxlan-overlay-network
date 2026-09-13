@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_VERSION: 0.14.33
-      VERSION_OVERRIDE: 0.14.33
-      TAG: 0.14.33
+      CANDIDATE_VERSION: 0.14.34
+      VERSION_OVERRIDE: 0.14.34
+      TAG: 0.14.34
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
-      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.33
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.34
       GO_VERSION: 1.27.0
       GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
@@ -86,14 +86,16 @@ jobs:
           ./scripts/build
           cp bin/ipsec-vxlan-overlay-network evidence/ipsec-vxlan-overlay-network.first
           cp bin/ipsec-vxlan-overlay-topology evidence/ipsec-vxlan-overlay-topology.first
+          cp bin/pasture-cni-resolver evidence/pasture-cni-resolver.first
           rm -rf bin
           ./scripts/build
           cmp evidence/ipsec-vxlan-overlay-network.first bin/ipsec-vxlan-overlay-network
           cmp evidence/ipsec-vxlan-overlay-topology.first bin/ipsec-vxlan-overlay-topology
+          cmp evidence/pasture-cni-resolver.first bin/pasture-cni-resolver
           bin/ipsec-vxlan-overlay-network --version 2>&1 | grep -F "$CANDIDATE_VERSION"
           bin/ipsec-vxlan-overlay-topology --version 2>&1 | grep -F "$CANDIDATE_VERSION"
           go version -m bin/ipsec-vxlan-overlay-network > evidence/product-go-version.txt
-          sha256sum bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology > evidence/product.sha256
+          sha256sum bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology bin/pasture-cni-resolver > evidence/product.sha256
 
       - name: Package the candidate runtime image
         shell: bash
@@ -105,6 +107,10 @@ jobs:
           test "$(cat dist/images)" = "$IMAGE"
           test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$CANDIDATE_VERSION"
           test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
+          candidate_container="$(docker create "$IMAGE")"
+          docker cp "$candidate_container:/opt/cni/bin/pasture-bridge" evidence/pasture-bridge.image
+          docker rm "$candidate_container" >/dev/null
+          cmp bin/pasture-cni-resolver evidence/pasture-bridge.image
           # All five published companion binaries ship in the runtime image.
           # Do not regress to a vulnerable Go toolchain even if the CVE DB lags.
           for companion in metadata-cni-ipam per-host-subnet host-local-cni-ipam flat-cni-ipam mount-propagation; do
@@ -153,7 +159,7 @@ jobs:
           tool_dir="$RUNNER_TEMP/security-tools"
           mkdir -p "$tool_dir"
           GOFLAGS=-mod=mod GOBIN="$tool_dir" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology; do
+          for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology pasture-cni-resolver; do
             "$tool_dir/govulncheck" -mode=binary -json "bin/$binary" \
               > "evidence/govulncheck-${binary}.json"
             if jq -e 'select(.finding != null)' "evidence/govulncheck-${binary}.json" >/dev/null; then
@@ -171,7 +177,7 @@ jobs:
           source_tree=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-source.XXXXXX")
           product_tree=$(mktemp -d "$RUNNER_TEMP/ipsec-overlay-product.XXXXXX")
           git archive HEAD | tar -x -C "$source_tree"
-          cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology "$product_tree/"
+          cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology bin/pasture-cni-resolver "$product_tree/"
           docker pull "$TRIVY_IMAGE"
           docker run --rm -v "$TRIVY_CACHE:/root/.cache/trivy" \
             "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --download-db-only
@@ -274,7 +280,7 @@ jobs:
               impact_statement:$impact
             }] | {
               "@context":"https://openvex.dev/ns/v0.2.0",
-              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.33",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.34",
               author:"PastureStack Security",
               timestamp:$timestamp,
               version:1,
