@@ -72,7 +72,7 @@ exactly one other installed association has carried traffic. Ambiguous or
 recent pairs, unrelated peers, and other connections are left untouched. The
 live two-host upgrade and traffic gates remain separate from this source fix.
 
-The next release adds a bounded CNI entrypoint adapter for the official
+Published `v0.14.34` adds a bounded CNI entrypoint adapter for the official
 per-host-subnet template. Only `bridgeSubnet`, `ipam.subnet`, and optional IP
 range fields containing an explicit `__host_label__:` reference are resolved
 from the local host Metadata API. Literal flat-network CNI documents are
@@ -80,6 +80,15 @@ forwarded byte-for-byte to the preserved bridge binary. Missing required
 labels, malformed IPv4 values, mismatched bridge/IPAM subnets, or metadata
 errors fail before changing the bridge. This does not select or alter the host
 firewall backend; Network Plugin Manager continues to own NAT and host ports.
+Catalog Templates `v0.3.8` pins this image in IPsec Overlay template version
+`9`, and Server `v1.6.436` embeds that Catalog. The official release image
+passed the isolated native-nftables, iptables-nft, and iptables-legacy gates;
+the two-host Catalog upgrade on the managed test environment converged with
+`v0.14.34` running for the router, connectivity check, and CNI driver. Both
+managed hosts were then rebooted one at a time: after agent/CNI startup,
+cross-host TCP, local Metadata/DNS, and HTTPS egress passed in both workload
+namespaces. Startup is asynchronous, so a service-level healthy status alone
+must not be used as proof that a restarted workload has acquired its IP.
 
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
