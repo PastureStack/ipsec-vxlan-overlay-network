@@ -36,7 +36,7 @@ var (
 		"remote_ts": ["0.0.0.0/0"],
 		"esp_proposals":  ["aes128gcm16-modp2048", "aes-modp2048"],
 		"start_action": "none",
-		"close_action": "start",
+		"close_action": "none",
 		"mode": "tunnel",
 		"policies": "no"
 	}`)

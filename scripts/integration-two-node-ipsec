@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:0.14.32}
+image=${IMAGE:-local/pasturestack/ipsec-vxlan-overlay-network:0.14.33}
+old_image=${OLD_IMAGE:-}
+startup_image=${old_image:-$image}
 test_id=$$
 network="pasture-overlay-it-${test_id}"
 node_a="pasture-overlay-a-${test_id}"
@@ -23,6 +25,9 @@ dump_logs() {
 }
 
 docker image inspect "$image" >/dev/null
+if [ -n "$old_image" ]; then
+    docker pull "$old_image" >/dev/null
+fi
 docker network create --driver bridge --subnet 172.31.253.0/24 "$network" >/dev/null
 
 mkdir -p "$work_dir/node-a/ipsec" "$work_dir/node-b/ipsec"
@@ -57,7 +62,7 @@ start_node() {
         --ip "$underlay" \
         --entrypoint /bin/bash \
         -v "$config_dir:/test:ro" \
-        "$image" \
+        "$startup_image" \
         -c "
             set -euo pipefail
             ip address add ${overlay}/32 dev eth0
@@ -92,6 +97,67 @@ if [ "$ready" != true ]; then
     exit 1
 fi
 
+if [ -n "$old_image" ]; then
+    # Attempt the live upgrade's duplicate starting state. strongSwan may
+    # converge these test-only initiations itself; the live gate remains the
+    # authority for that scenario, while this still tests a rolling handoff.
+    docker exec "$node_a" swanctl --initiate --ike conn-172.31.253.11 --timeout 20 >"$work_dir/old-initiate-a.log" 2>&1 &
+    old_extra_a=$!
+    docker exec "$node_b" swanctl --initiate --ike conn-172.31.253.10 --timeout 20 >"$work_dir/old-initiate-b.log" 2>&1 &
+    old_extra_b=$!
+    wait "$old_extra_a" || true
+    wait "$old_extra_b" || true
+    old_duplicate=false
+    for attempt in $(seq 1 30); do
+        count_a=$(docker exec "$node_a" swanctl --list-sas --raw 2>/dev/null | grep -c '^list-sa event' || true)
+        count_b=$(docker exec "$node_b" swanctl --list-sas --raw 2>/dev/null | grep -c '^list-sa event' || true)
+        if [ "$count_a" -ge 2 ] && [ "$count_b" -ge 2 ]; then
+            old_duplicate=true
+            break
+        fi
+        sleep 1
+    done
+    echo "OLD_DUPLICATE_REPRODUCED=$old_duplicate"
+    if [ "$old_duplicate" != true ]; then
+        cat "$work_dir/old-initiate-a.log" "$work_dir/old-initiate-b.log" >&2
+    fi
+
+    # Roll one peer at a time, keeping the other peer alive.  The candidate
+    # must restore encrypted traffic before and after the second handoff.
+    startup_image=$image
+    docker rm -f "$node_a" >/dev/null
+    start_node "$node_a" 172.31.253.10 10.42.253.10 10.42.253.11 "$work_dir/node-a"
+    first_handoff=false
+    for attempt in $(seq 1 60); do
+        if docker exec "$node_a" ping -c 1 -W 1 -I 10.42.253.10 10.42.253.11 >/dev/null 2>&1; then
+            first_handoff=true
+            break
+        fi
+        sleep 1
+    done
+    if [ "$first_handoff" != true ]; then
+        dump_logs
+        echo "First rolling upgrade handoff did not restore encrypted traffic" >&2
+        exit 1
+    fi
+    docker rm -f "$node_b" >/dev/null
+    start_node "$node_b" 172.31.253.11 10.42.253.11 10.42.253.10 "$work_dir/node-b"
+    ready=false
+    for attempt in $(seq 1 60); do
+        if docker exec "$node_a" swanctl --list-sas --raw 2>/dev/null | grep -q 'child-172.31.253.11' && \
+           docker exec "$node_b" swanctl --list-sas --raw 2>/dev/null | grep -q 'child-172.31.253.10'; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+    if [ "$ready" != true ]; then
+        dump_logs
+        echo "Second rolling upgrade handoff did not establish IPsec" >&2
+        exit 1
+    fi
+fi
+
 if ! docker exec "$node_a" ping -c 3 -W 2 -I 10.42.253.10 10.42.253.11 >/dev/null; then
     dump_logs
     docker exec "$node_a" ip -s xfrm state >&2 || true
@@ -118,9 +184,29 @@ single_sa_on_both_nodes() {
     [ "$count_a" = 1 ] && [ "$count_b" = 1 ]
 }
 
-if ! single_sa_on_both_nodes; then
+wait_for_single_working_sa() {
+    local attempt
+    for attempt in $(seq 1 180); do
+        # Keep exercising the data path while the 120-second quiet period and
+        # 30-second health reconciler decide whether an old SA is truly idle.
+        if docker exec "$node_a" ping -c 1 -W 1 -I 10.42.253.10 10.42.253.11 >/dev/null 2>&1 &&
+           single_sa_on_both_nodes; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+dump_sas() {
+    docker exec "$node_a" swanctl --list-sas --raw >&2 || true
+    docker exec "$node_b" swanctl --list-sas --raw >&2 || true
+}
+
+if ! wait_for_single_working_sa; then
     dump_logs
-    echo "Initial connection has duplicate IKE SAs" >&2
+    dump_sas
+    echo "Initial connection did not converge to one working IKE SA" >&2
     exit 1
 fi
 
@@ -132,17 +218,9 @@ docker exec "$node_b" swanctl --initiate --ike conn-172.31.253.10 --timeout 20 >
 extra_b=$!
 wait "$extra_a" || true
 wait "$extra_b" || true
-single_after_race=false
-for attempt in $(seq 1 30); do
-    if single_sa_on_both_nodes && \
-       docker exec "$node_a" ping -c 1 -W 1 -I 10.42.253.10 10.42.253.11 >/dev/null 2>&1; then
-        single_after_race=true
-        break
-    fi
-    sleep 1
-done
-if [ "$single_after_race" != true ]; then
+if ! wait_for_single_working_sa; then
     dump_logs
+    dump_sas
     echo "Concurrent initiation left duplicate or unusable IKE SAs" >&2
     exit 1
 fi
@@ -150,20 +228,9 @@ fi
 # Simulate a peer restart without resetting the surviving node. This is where
 # concurrent initiation previously left two long-lived SAs for one peer.
 docker restart --time 5 "$node_b" >/dev/null
-recovered=false
-for attempt in $(seq 1 120); do
-    if single_sa_on_both_nodes && \
-       docker exec "$node_a" ping -c 1 -W 1 -I 10.42.253.10 10.42.253.11 >/dev/null 2>&1; then
-        recovered=true
-        break
-    fi
-    sleep 1
-done
-
-if [ "$recovered" != true ]; then
+if ! wait_for_single_working_sa; then
     dump_logs
-    docker exec "$node_a" swanctl --list-sas >&2 || true
-    docker exec "$node_b" swanctl --list-sas >&2 || true
+    dump_sas
     echo "Peer restart did not converge to one working IKE SA" >&2
     exit 1
 fi
