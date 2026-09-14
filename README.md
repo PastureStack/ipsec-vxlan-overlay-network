@@ -100,6 +100,23 @@ backend selection, or the router's port 8111 ownership. Source tests hold and
 release the port and verify the bounded failure path. Image publication,
 Catalog pinning, and live upgrade acceptance are separate gates for each release.
 
+Published `v0.14.36` updates the packaged preserved bridge compatibility
+binary to `v0.7.2`. In the Layer 2 Flat template it honors
+`skipBridgeConfigureIP`, so the CNI driver does not add another address to an
+operator-owned bridge. It packages `flat-cni-ipam v0.1.4` and does not change
+firewall ownership. Catalog Templates `v0.3.11` pins this image in Layer 2 Flat
+template version `5`; Server `v1.6.439` embeds that Catalog.
+
+`v0.14.37` updates only the packaged flat-network IPAM companion to
+`flat-cni-ipam v0.1.5`. When a template expresses `bridgeSubnet` with the
+network address, the IPAM now selects the same first usable gateway derived by
+the bridge plugin if that address is present. This makes restart reconciliation
+deterministic when an operator-owned flat bridge also carries a separate host
+address. Explicit host addresses still win, and an unresolved multi-address
+bridge still fails closed instead of guessing. Firewall ownership and backend
+selection remain unchanged. Publication, Catalog pinning, and live reboot
+acceptance are separate gates.
+
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
 separately and retains its raw findings; only exact, already-reviewed
@@ -124,8 +141,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.36 make build
-TAG=0.14.36 make package
+VERSION_OVERRIDE=0.14.37 make build
+TAG=0.14.37 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
