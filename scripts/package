@@ -15,8 +15,8 @@ PER_HOST_SUBNET_URL=${PER_HOST_SUBNET_URL:-https://github.com/PastureStack/per-h
 PER_HOST_SUBNET_SHA256=${PER_HOST_SUBNET_SHA256:-d12acca4526eee45d52b87541717ae81432225d9c5dabfd823d6b43631c20e84}
 HOST_LOCAL_CNI_IPAM_URL=${HOST_LOCAL_CNI_IPAM_URL:-https://github.com/PastureStack/host-local-cni-ipam/releases/download/v0.1.4/host-local-cni-ipam-0.1.4-linux-amd64}
 HOST_LOCAL_CNI_IPAM_SHA256=${HOST_LOCAL_CNI_IPAM_SHA256:-9bb79b9f269663715f44aea898854df0e0e319a3ba35e4d52db5477cde026e3e}
-FLAT_CNI_IPAM_URL=${FLAT_CNI_IPAM_URL:-https://github.com/PastureStack/flat-cni-ipam/releases/download/v0.1.4/flat-cni-ipam-v0.1.4-linux-amd64}
-FLAT_CNI_IPAM_SHA256=${FLAT_CNI_IPAM_SHA256:-edbbe0924637381f95b268b259170d80434d3c37e0a5a7519c7e55b2e8957db5}
+FLAT_CNI_IPAM_URL=${FLAT_CNI_IPAM_URL:-https://github.com/PastureStack/flat-cni-ipam/releases/download/v0.1.5/flat-cni-ipam-v0.1.5-linux-amd64}
+FLAT_CNI_IPAM_SHA256=${FLAT_CNI_IPAM_SHA256:-c0044889348313d84d631e36121068fc5072fb423e25fcd795e6b34424f38de7}
 MOUNT_PROPAGATION_URL=${MOUNT_PROPAGATION_URL:-https://github.com/PastureStack/mount-propagation/releases/download/v1.0.11/mount-propagation-v1.0.11-linux-amd64}
 MOUNT_PROPAGATION_SHA256=${MOUNT_PROPAGATION_SHA256:-800bbc2d74c318ccc62d2c3c76846ee1fe307c21daf558c7edcf5de25e393a4b}
 
