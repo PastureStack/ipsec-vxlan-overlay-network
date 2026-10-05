@@ -2,6 +2,9 @@ FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea264
 
 COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
 ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb /tmp/ca-certificates.deb
+ADD --checksum=sha256:44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d057bb340 https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/libssl3t64_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-libssl3t64.deb
+ADD --checksum=sha256:588e7f17afb9263a348c9587330805fc856536402328bec1660ff3a95e61bb4c https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl.deb
+ADD --checksum=sha256:1b582b937a1f7a8f987da9e1bbfcc806faea714267631ce0fbbd352c924b7daf https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl-provider-legacy_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl-provider-legacy.deb
 
 ARG IMAGE_VERSION=dev
 ARG IMAGE_REVISION=unknown
@@ -47,12 +50,17 @@ RUN set -eux; \
         nftables="${UBUNTU_APT_NFTABLES_VERSION}" \
         libstrongswan-extra-plugins="${UBUNTU_APT_STRONGSWAN_VERSION}" \
         libstrongswan-standard-plugins="${UBUNTU_APT_STRONGSWAN_VERSION}" \
-        openssl="${UBUNTU_APT_OPENSSL_VERSION}" \
+        /tmp/pasturestack-libssl3t64.deb \
+        /tmp/pasturestack-openssl.deb \
+        /tmp/pasturestack-openssl-provider-legacy.deb \
         psmisc="${UBUNTU_APT_PSMISC_VERSION}" \
         strongswan-charon="${UBUNTU_APT_STRONGSWAN_VERSION}" \
         strongswan-swanctl="${UBUNTU_APT_STRONGSWAN_VERSION}" \
         tar="${UBUNTU_APT_TAR_VERSION}" \
         util-linux="${UBUNTU_APT_UTIL_LINUX_VERSION}"; \
+    for package in openssl libssl3t64 openssl-provider-legacy; do \
+        test "$(dpkg-query -W -f='${Version}' "$package")" = "${UBUNTU_APT_OPENSSL_VERSION}"; \
+    done; \
     mkdir -p /licenses/strongswan-source; \
     cd /licenses/strongswan-source; \
     apt-get source --download-only strongswan="${UBUNTU_APT_STRONGSWAN_VERSION}"; \
@@ -65,7 +73,8 @@ RUN set -eux; \
     done; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv; \
-    rm -rf /var/lib/apt/lists/* /tmp/ca-certificates.deb /tmp/ca-bootstrap
+    rm -rf /var/lib/apt/lists/* /tmp/ca-certificates.deb /tmp/ca-bootstrap \
+        /tmp/pasturestack-libssl3t64.deb /tmp/pasturestack-openssl.deb /tmp/pasturestack-openssl-provider-legacy.deb
 
 RUN set -eux; \
     fetch() { \

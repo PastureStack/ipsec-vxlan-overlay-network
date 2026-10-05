@@ -62,6 +62,7 @@ jobs:
           git merge-base --is-ancestor "$reviewed_base" HEAD
           test "$(git rev-list --count "$reviewed_base"..HEAD)" -ge 1
           python3 tests/test_release_history_contract.py
+          python3 tests/test_openssl_package_contract.py
           source scripts/version
           test "$VERSION" = "$CANDIDATE_VERSION"
           go list -mod=vendor ./... >/dev/null
