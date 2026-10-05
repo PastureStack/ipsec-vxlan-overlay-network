@@ -107,7 +107,7 @@ operator-owned bridge. It packages `flat-cni-ipam v0.1.4` and does not change
 firewall ownership. Catalog Templates `v0.3.11` pins this image in Layer 2 Flat
 template version `5`; Server `v1.6.439` embeds that Catalog.
 
-`v0.14.37` updates only the packaged flat-network IPAM companion to
+Published `v0.14.37` updates only the packaged flat-network IPAM companion to
 `flat-cni-ipam v0.1.5`. When a template expresses `bridgeSubnet` with the
 network address, the IPAM now selects the same first usable gateway derived by
 the bridge plugin if that address is present. This makes restart reconciliation
@@ -116,6 +116,24 @@ address. Explicit host addresses still win, and an unresolved multi-address
 bridge still fails closed instead of guessing. Firewall ownership and backend
 selection remain unchanged. Publication, Catalog pinning, and live reboot
 acceptance are separate gates.
+
+Candidate `v0.14.38` repairs IPsec connection caching when the local Metadata
+Agent IP changes. Its fingerprint includes that IP and the complete effective
+IKE configuration. A discovered connection name is not a verified fingerprint;
+only a successful `load-conn` updates the cache. Proposals, explicit identities,
+custom CHILD settings, firewall ownership, and backend selection are unchanged.
+
+After the new connection, policies, and host routes load successfully, cleanup
+may terminate only an exact IKE ID for the same managed peer and an old local
+endpoint anchored in this process's previous successful load. This includes a
+CONNECTING association without a CHILD. Foreign children, identities, peers,
+ambiguous IDs, and unknown imported configurations do not authorize cleanup.
+Load failure never updates the cache or triggers this cleanup; no daemon restart
+is added. Unit tests and a Linux cross-build are source-only evidence, not proof
+of publication or live recovery. The release digest, Catalog pinning, and managed
+two-host endpoint-change acceptance remain separate gates.
+Normal PR merges still require successful Security and CodeQL gates on the exact
+final source SHA before release.
 
 The release gate rejects Critical/High findings and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
@@ -141,11 +159,11 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.37 make build
-TAG=0.14.37 make package
+VERSION_OVERRIDE=0.14.38 make build
+TAG=0.14.38 make package
 ```
 
-The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves every directly installed package from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
+The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves packages from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. The sole package overlay is the checksum-pinned OpenSSL triplet (`openssl`, `libssl3t64`, `openssl-provider-legacy`) at `3.5.5-1ubuntu3.6` from snapshot `20260930T000000Z`, fixing CVE-2026-84782 in both Dapper and runtime without changing other package locks or the kernel-header review boundary. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
 
 The release gate also runs `scripts/integration-optional-cni-isolated` against
 the image it just packaged. Inside a disposable, network-isolated container it
