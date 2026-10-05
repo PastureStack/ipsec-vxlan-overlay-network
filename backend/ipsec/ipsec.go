@@ -24,10 +24,9 @@ import (
 )
 
 const (
-	reqId    = 1234
-	reqIdStr = "1234"
-	pskFile  = "psk.txt"
-	pidFile  = "/var/run/charon.pid"
+	reqId   = 1234
+	pskFile = "psk.txt"
+	pidFile = "/var/run/charon.pid"
 
 	ipsecHealthCheckInterval = 30 * time.Second
 	duplicateSAQuietPeriod   = 120 * time.Second
@@ -45,6 +44,7 @@ type Overlay struct {
 	initiating    map[string]bool
 	keys          map[string]string
 	hosts         map[string]string
+	staleLocal    map[string]map[string]string
 	templates     Templates
 	db            store.Store
 	psk           string
@@ -66,6 +66,7 @@ func NewOverlay(configDir string, db store.Store) *Overlay {
 		},
 		keys:       map[string]string{},
 		hosts:      map[string]string{},
+		staleLocal: map[string]map[string]string{},
 		initiating: map[string]bool{},
 	}
 }
@@ -121,12 +122,13 @@ func (o *Overlay) loadConns() error {
 	}
 
 	o.hosts = map[string]string{}
+	o.staleLocal = map[string]map[string]string{}
 
 	for _, conn := range conns {
 		for k := range conn {
 			if strings.HasPrefix(k, "conn-") {
 				logrus.Infof("Found existing connection: %s", logsafe.Value(k))
-				o.hosts[strings.TrimPrefix(k, "conn-")] = o.templates.Revision()
+				o.hosts[strings.TrimPrefix(k, "conn-")] = ""
 			}
 		}
 	}
@@ -286,6 +288,16 @@ func (o *Overlay) configure() error {
 
 	if firstErr == nil {
 		firstErr = o.syncHostRoutes(hostRoutes)
+	}
+
+	if firstErr == nil && o.UseHostTunnelSource && len(o.staleLocal) > 0 {
+		client, err := getClient()
+		if err != nil {
+			firstErr = err
+		} else {
+			firstErr = reapStaleLocalSAs(client, o.db.LocalHostIpAddress(), hosts, o.staleLocal)
+			client.Close()
+		}
 	}
 
 	if firstErr == nil {
@@ -513,16 +525,8 @@ func (o *Overlay) reapDuplicateSAs(expectedHosts map[string]bool) error {
 	ids := deletingDuplicateIKEIDs(sas, expectedHosts)
 	ids = append(ids, idleDuplicateIKEIDs(sas, expectedHosts)...)
 	for _, id := range ids {
-		response, err := client.Request("terminate", map[string]interface{}{
-			"ike-id":  id,
-			"force":   "yes",
-			"timeout": "1000",
-		})
-		if err != nil {
+		if err := terminateIKEID(client, id); err != nil {
 			return err
-		}
-		if response["success"] != "yes" && response["matches"] != "0" {
-			return fmt.Errorf("terminate stale IKE_SA %s: %v", id, response["errmsg"])
 		}
 		logrus.Infof("Removed stale duplicate IKE_SA %s", logsafe.Value(id))
 	}
@@ -904,6 +908,7 @@ func (o *Overlay) removeHosts() error {
 			} else {
 				logrus.Infof("Removed connection for %s", logsafe.Value(k))
 				delete(o.hosts, k)
+				delete(o.staleLocal, k)
 			}
 		}
 	}
@@ -984,27 +989,13 @@ func (o *Overlay) loadSharedKey(ipAddress string) error {
 	return nil
 }
 
-func (o *Overlay) filterAlgos(algos []string) []string {
-	ret := []string{}
-	for _, algo := range algos {
-		add := true
-		for _, ignore := range o.Blacklist {
-			if strings.HasPrefix(algo, ignore) {
-				add = false
-				break
-			}
-		}
-		if add {
-			ret = append(ret, algo)
-		}
-	}
-
-	return ret
-}
-
 func (o *Overlay) addHostConnection(entry store.Entry) error {
 	o.hostAttempt[entry.HostIpAddress] = true
-	if o.hosts[entry.HostIpAddress] == o.templates.Revision() {
+	ikeConf, fingerprint, err := hostConnectionConfig(&o.templates, o.Blacklist, o.db.LocalHostIpAddress(), o.localTunnelAddress(), entry.HostIpAddress, o.UseHostTunnelSource)
+	if err != nil {
+		return err
+	}
+	if o.hosts[entry.HostIpAddress] == fingerprint {
 		logrus.Debugf("Connection already loaded for host %s", logsafe.Value(entry.HostIpAddress))
 		return nil
 	}
@@ -1015,55 +1006,17 @@ func (o *Overlay) addHostConnection(entry store.Entry) error {
 	}
 	defer client.Close()
 
-	childSAConf := o.templates.NewChildSaConf()
-	childSAConf.ESPProposals = o.filterAlgos(childSAConf.ESPProposals)
-	childSAConf.ReqID = reqIdStr
-	if strings.Compare(entry.HostIpAddress, o.db.LocalHostIpAddress()) < 0 {
-		childSAConf.RekeyTime = "8760h"
-	}
-
-	ikeConf := o.templates.NewIkeConf()
-	ikeConf.Proposals = o.filterAlgos(ikeConf.Proposals)
-	if o.UseHostTunnelSource {
-		ikeConf.LocalAddrs = []string{o.localTunnelAddress()}
-	}
-	ikeConf.RemoteAddrs = []string{entry.HostIpAddress}
-	ikeConf.Children = map[string]goStrongswanVici.ChildSAConf{
-		"child-" + entry.HostIpAddress: childSAConf,
-	}
-
 	name := fmt.Sprintf("conn-%s", entry.HostIpAddress)
 	// Loading connections doesn't seem to be very reliable, can't get info
 	// why it's failing though.
-	for i := 0; i < 3; i++ {
-		err = loadIKEConnection(client, name, ikeConf)
-		if err == nil {
-			break
-		}
-	}
+	err = loadHostConnection(client, entry.HostIpAddress, ikeConf, fingerprint, o.hosts, o.staleLocal)
 	if err != nil {
 		logrus.Errorf("Failed loading connection %s: %s", logsafe.Value(name), logsafe.Value(err))
 		return err
 	}
 
-	o.hosts[entry.HostIpAddress] = o.templates.Revision()
-	logrus.Infof("Loaded connection %s with %d IKE and %d ESP proposals", logsafe.Value(name), len(ikeConf.Proposals), len(childSAConf.ESPProposals))
+	logrus.Infof("Loaded connection %s with %d IKE and %d ESP proposals", logsafe.Value(name), len(ikeConf.Proposals), len(ikeConf.Children["child-"+entry.HostIpAddress].ESPProposals))
 
-	return nil
-}
-
-func loadIKEConnection(client *goStrongswanVici.ClientConn, name string, conf IKEConnectionConfig) error {
-	request := &map[string]interface{}{}
-	if err := goStrongswanVici.ConvertToGeneral(&map[string]IKEConnectionConfig{name: conf}, request); err != nil {
-		return fmt.Errorf("encode IKE connection: %w", err)
-	}
-	response, err := client.Request("load-conn", *request)
-	if err != nil {
-		return err
-	}
-	if response["success"] != "yes" {
-		return fmt.Errorf("load IKE connection: %v", response["errmsg"])
-	}
 	return nil
 }
 
