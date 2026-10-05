@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_VERSION: 0.14.37
-      VERSION_OVERRIDE: 0.14.37
-      TAG: 0.14.37
+      CANDIDATE_VERSION: 0.14.38
+      VERSION_OVERRIDE: 0.14.38
+      TAG: 0.14.38
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
-      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.37
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.38
       GO_VERSION: 1.27.0
       GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
@@ -61,7 +61,8 @@ jobs:
           test "$(git cat-file -t "$reviewed_base")" = commit
           git merge-base --is-ancestor "$reviewed_base" HEAD
           test "$(git rev-list --count "$reviewed_base"..HEAD)" -ge 1
-          test "$(git rev-list --count --merges "$reviewed_base"..HEAD)" -eq 0
+          python3 tests/test_release_history_contract.py
+          python3 tests/test_openssl_package_contract.py
           source scripts/version
           test "$VERSION" = "$CANDIDATE_VERSION"
           go list -mod=vendor ./... >/dev/null
@@ -280,7 +281,7 @@ jobs:
               impact_statement:$impact
             }] | {
               "@context":"https://openvex.dev/ns/v0.2.0",
-              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.37",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.38",
               author:"PastureStack Security",
               timestamp:$timestamp,
               version:1,
