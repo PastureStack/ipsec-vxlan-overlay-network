@@ -1,10 +1,25 @@
 # PastureStack IPsec/VXLAN Overlay Network
 
+Current source builds use Go 1.27.3 while the Go language minimum remains 1.26.0. The selected `golang.org/x/net` version is v0.60.0; its required `golang.org/x/sys` version is v0.48.0. Ubuntu 26.04 images install the checksum-pinned `ca-certificates` 20260816ubuntu0.26.04.1 package with only officially fixed, already-installed packages advanced by the reviewed security overlay. These source inputs take effect in newly built artifacts; existing published release coordinates below describe their original artifacts.
+
 This repository provides the privileged network data plane used by PastureStack. It contains IPsec and VXLAN overlay processes, connectivity checks, CNI runtime assets, and an audit-only topology planner.
 
 PastureStack is an independent community effort to preserve, audit, and modernize the Rancher 1.6 ecosystem. It is not affiliated with or endorsed by Rancher Labs or SUSE.
 
 ## Release status
+
+Candidate `v0.14.39` refreshes the compiler, effective Go dependencies,
+official Ubuntu security packages, and checksum-pinned companion binaries.
+The companions are metadata CNI IPAM `v0.2.8`, host-local CNI IPAM `v0.1.6`,
+flat CNI IPAM `v0.1.6`, mount propagation `v1.0.12`, and per-host subnet
+`v0.2.5`. The last is an official Go 1.27.3 rebuild whose Go implementation
+and tests are byte-identical to the historical `v0.2.8` prerelease companion;
+the numeric tag difference does not remove a runtime feature. The security
+APT overlay uses private index/cache paths and verifies that the original
+strongSwan source index remains readable. Networking, CLI/API, CNI, and
+firewall ownership contracts are unchanged. Candidate inputs are not proof
+of publication; require the final release's same-source checks, scan results,
+and immutable image digest before deployment.
 
 The prior `v0.14.27` source and image were published with manifest digest
 `sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
@@ -203,3 +218,5 @@ bridge firewall must accept mark `0x1068/0x1068`. See
 The official upstream history and original copyright notices are preserved. See [ORIGIN.md](ORIGIN.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [LICENSE](LICENSE) before redistributing this source or its image.
 
 The repository source is licensed under Apache License 2.0. The runtime image also contains separately licensed operating-system packages, including strongSwan under GPL-2.0-or-later with the OpenSSL exception. Those components are not relicensed by PastureStack.
+
+Security micro-updates are constrained by `security/ubuntu-security-packages.lock` to the signed Ubuntu 26.04 snapshot of 2026-10-23; the general package snapshot remains unchanged. Builds record the resulting package versions in `/usr/share/pasturestack/ubuntu-security-packages.tsv`. Existing runtime and firewall contracts are unchanged.

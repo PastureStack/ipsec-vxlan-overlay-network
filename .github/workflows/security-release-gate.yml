@@ -1,6 +1,8 @@
 name: Security release gate
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches:
       - 'verification/ipsec-vxlan-overlay-network-*'
@@ -18,14 +20,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_VERSION: 0.14.38
-      VERSION_OVERRIDE: 0.14.38
-      TAG: 0.14.38
+      CANDIDATE_VERSION: 0.14.39
+      VERSION_OVERRIDE: 0.14.39
+      TAG: 0.14.39
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
-      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.38
-      GO_VERSION: 1.27.0
-      GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.39
+      GO_VERSION: 1.27.3
+      GO_LINUX_AMD64_SHA256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
       TRIVY_CACHE: /tmp/pasturestack-ipsec-vxlan-overlay-trivy-cache
       GOFLAGS: '-mod=vendor'
@@ -136,7 +138,7 @@ jobs:
             /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv \
             > evidence/runtime-ubuntu-apt-packages.tsv
           docker run --rm --entrypoint docker "$dapper_image" --version \
-            | grep -F 'Docker version 29.8.0' \
+            | grep -F 'Docker version 29.9.2' \
             > evidence/docker-cli-version.txt
           printf 'DAPPER_IMAGE=%s\n' "$dapper_image" >> "$GITHUB_ENV"
 
@@ -226,7 +228,7 @@ jobs:
             --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
             --format cyclonedx --output /evidence/dapper-sbom.cdx.json /scan
 
-          dapper_purl='pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04'
+          dapper_purl='pkg:deb/ubuntu/linux-libc-dev@7.0.0-38.38?arch=amd64&distro=ubuntu-26.04'
           jq -r '
             .Results[]?.Vulnerabilities[]?
             | select(.Severity == "CRITICAL" or .Severity == "HIGH")
@@ -254,7 +256,7 @@ jobs:
             echo 'Unreviewed non-header vulnerability in Dapper tooling' >&2
             exit 1
           fi
-          grep -Fx $'linux-libc-dev:amd64\t7.0.0-29.29' \
+          grep -Fx $'linux-libc-dev:amd64\t7.0.0-38.38' \
             evidence/dapper-ubuntu-apt-packages.tsv >/dev/null
           if grep -Eq '^linux-(image|modules)([-:]|[[:space:]])' \
             evidence/dapper-ubuntu-apt-packages.tsv; then
@@ -281,7 +283,7 @@ jobs:
               impact_statement:$impact
             }] | {
               "@context":"https://openvex.dev/ns/v0.2.0",
-              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.38",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.39",
               author:"PastureStack Security",
               timestamp:$timestamp,
               version:1,
