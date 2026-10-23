@@ -187,18 +187,27 @@ jobs:
           docker pull "$TRIVY_IMAGE"
           docker run --rm -v "$TRIVY_CACHE:/root/.cache/trivy" \
             "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --download-db-only
-          run_fs_scan() {
-            local source=$1 destination=$2
+          run_path_scan() {
+            local scan_type=$1 source=$2 destination=$3
             docker run --rm --network none \
               -v "$TRIVY_CACHE:/root/.cache/trivy" \
               -v "$source:/scan:ro" -v "$PWD/evidence:/evidence" \
-              "$TRIVY_IMAGE" fs --cache-dir /root/.cache/trivy \
-              --skip-db-update --offline-scan --scanners vuln,secret \
+              "$TRIVY_IMAGE" "$scan_type" --cache-dir /root/.cache/trivy \
+              --skip-db-update --offline-scan --scanners vuln,secret --list-all-pkgs \
               --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json \
               --output "/evidence/${destination}" /scan
           }
-          run_fs_scan "$source_tree" source-security.json
-          run_fs_scan "$product_tree" product-security.json
+          run_path_scan fs "$source_tree" source-security.json
+          # Filesystem mode intentionally ignores compiled Go executables.
+          # Rootfs mode must identify each delivered ELF, not emit an empty
+          # report that could be mistaken for a clean product scan.
+          run_path_scan rootfs "$product_tree" product-security.json
+          for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology pasture-cni-resolver; do
+            test -x "$product_tree/$binary"
+            jq -e --arg binary "$binary" \
+              '[.Results[]? | select(.Type == "gobinary" and .Target == $binary) | .Packages[]?] | length > 0' \
+              evidence/product-security.json >/dev/null
+          done
           docker run --rm --network none \
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$source_tree:/scan:ro" \
             -v "$PWD/evidence:/evidence" "$TRIVY_IMAGE" fs \

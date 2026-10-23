@@ -127,6 +127,11 @@ jobs:
             evidence/source-sbom.cdx.json >/dev/null
           python3 .github/scripts/enforce-runtime-vulnerabilities.py \
             dapper --repository "$GITHUB_REPOSITORY"
+          for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology pasture-cni-resolver; do
+            jq -e --arg binary "$binary" \
+              '[.Results[]? | select(.Type == "gobinary" and .Target == $binary) | .Packages[]?] | length > 0' \
+              evidence/product-security.json >/dev/null
+          done
           for scope in source product runtime; do
             report="evidence/${scope}-security.json"
             python3 .github/scripts/enforce-runtime-vulnerabilities.py \

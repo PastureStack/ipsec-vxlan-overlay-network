@@ -26,6 +26,15 @@ class FullSeverityContract(unittest.TestCase):
         self.assertIn("evidence/dapper-security.json > evidence/dapper-nonheader-security.json", source)
         self.assertIn("linux-libc-dev must not be shipped in the runtime image", source)
 
+    def test_compiled_products_are_identified_by_rootfs_analyzer(self):
+        source = (ROOT / ".github/workflows/security-release-gate.yml").read_text(encoding="utf-8")
+        self.assertIn('run_path_scan rootfs "$product_tree" product-security.json', source)
+        self.assertIn('--scanners vuln,secret --list-all-pkgs', source)
+        for name in ("security-release-gate.yml", "release.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+            self.assertIn('.Type == "gobinary" and .Target == $binary', workflow)
+            self.assertIn('.Packages[]?] | length > 0', workflow)
+
     def test_only_reviewed_strongswan_and_sysusers_versions_are_overlaid(self):
         lock = (ROOT / "security/ubuntu-security-packages.lock").read_text(encoding="utf-8")
         for package in ("libstrongswan", "libstrongswan-extra-plugins", "libstrongswan-standard-plugins",
