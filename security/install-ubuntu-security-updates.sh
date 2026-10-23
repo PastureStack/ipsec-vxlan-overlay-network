@@ -26,9 +26,13 @@ while IFS= read -r entry || test -n "$entry"; do
     set -- "$@" "$entry"
 done < "$lock"
 if test "$#" -gt 0; then
+    mkdir -p "$tmp/lists/partial"
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/20261023T000000Z\nSuites: resolute-updates resolute-security\nComponents: main\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' > "$tmp/security.sources"
     apt_security() {
-        apt-get -o Dir::Etc::sourcelist="$tmp/security.sources" \
+        apt-get -o Dir::State::lists="$tmp/lists" \
+            -o Dir::Cache::pkgcache="$tmp/pkgcache.bin" \
+            -o Dir::Cache::srcpkgcache="$tmp/srcpkgcache.bin" \
+            -o Dir::Etc::sourcelist="$tmp/security.sources" \
             -o Dir::Etc::sourceparts=- -o Acquire::https::CaInfo="$trusted_ca" \
             -o Acquire::https::Verify-Peer=true -o Acquire::https::Verify-Host=true \
             -o Acquire::AllowInsecureRepositories=false -o APT::Get::AllowUnauthenticated=false \

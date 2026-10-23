@@ -8,6 +8,19 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
+Candidate `v0.14.39` refreshes the compiler, effective Go dependencies,
+official Ubuntu security packages, and checksum-pinned companion binaries.
+The companions are metadata CNI IPAM `v0.2.8`, host-local CNI IPAM `v0.1.6`,
+flat CNI IPAM `v0.1.6`, mount propagation `v1.0.12`, and per-host subnet
+`v0.2.5`. The last is an official Go 1.27.3 rebuild whose Go implementation
+and tests are byte-identical to the historical `v0.2.8` prerelease companion;
+the numeric tag difference does not remove a runtime feature. The security
+APT overlay uses private index/cache paths and verifies that the original
+strongSwan source index remains readable. Networking, CLI/API, CNI, and
+firewall ownership contracts are unchanged. Candidate inputs are not proof
+of publication; require the final release's same-source checks, scan results,
+and immutable image digest before deployment.
+
 The prior `v0.14.27` source and image were published with manifest digest
 `sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
 and release SBOM/provenance attestations. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, that

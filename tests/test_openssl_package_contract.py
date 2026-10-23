@@ -107,6 +107,15 @@ class OpenSSLPackageContract(unittest.TestCase):
         self.assertLess(source.index('echo "${STRONGSWAN_DSC_SHA256}'), overlay)
         self.assertLess(overlay, source.index("/licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv"))
 
+    def test_security_indexes_are_isolated_and_original_source_remains_readable(self):
+        helper = (BASE / "security/install-ubuntu-security-updates.sh").read_text(encoding="utf-8")
+        for option in ('Dir::State::lists="$tmp/lists"',
+                       'Dir::Cache::pkgcache="$tmp/pkgcache.bin"',
+                       'Dir::Cache::srcpkgcache="$tmp/srcpkgcache.bin"'):
+            self.assertIn(option, helper)
+        self.assertIn('apt-cache showsrc strongswan | grep -Fx "Version: ${UBUNTU_APT_STRONGSWAN_VERSION}"',
+                      self.sources["package/Dockerfile"])
+
 
 if __name__ == "__main__":
     unittest.main()

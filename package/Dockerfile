@@ -76,6 +76,7 @@ RUN set -eux; \
         cp "/usr/share/doc/${package}/copyright" "/licenses/ubuntu-packages/${package}-copyright"; \
     done; \
     sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /usr/share/pasturestack/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt; \
+    apt-cache showsrc strongswan | grep -Fx "Version: ${UBUNTU_APT_STRONGSWAN_VERSION}"; \
     dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv; \
