@@ -8,12 +8,12 @@ ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510
 ADD --checksum=sha256:44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d057bb340 https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/libssl3t64_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-libssl3t64.deb
 ADD --checksum=sha256:588e7f17afb9263a348c9587330805fc856536402328bec1660ff3a95e61bb4c https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl.deb
 ADD --checksum=sha256:1b582b937a1f7a8f987da9e1bbfcc806faea714267631ce0fbbd352c924b7daf https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl-provider-legacy_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl-provider-legacy.deb
+ADD --checksum=sha256:79576bb61b9a406cea9eb73d0c565cc6254a6b6d2e7198f44758d2d7c61a7aec https://snapshot.ubuntu.com/ubuntu/20261023T000000Z/pool/main/s/strongswan/strongswan_6.0.4.orig.tar.bz2 /licenses/strongswan-source/strongswan_6.0.4.orig.tar.bz2
+ADD --checksum=sha256:1f6cfddbefa64298e0cd7dbfcf8dde7eb0b81f708a70f180698a9addbc77e631 https://snapshot.ubuntu.com/ubuntu/20261023T000000Z/pool/main/s/strongswan/strongswan_6.0.4-1ubuntu3.2.debian.tar.xz /licenses/strongswan-source/strongswan_6.0.4-1ubuntu3.2.debian.tar.xz
+ADD --checksum=sha256:ee6958695eaf9f486e7c5eabb90232ed15bf54df054c82d2836ed00f71d82d94 https://snapshot.ubuntu.com/ubuntu/20261023T000000Z/pool/main/s/strongswan/strongswan_6.0.4-1ubuntu3.2.dsc /licenses/strongswan-source/strongswan_6.0.4-1ubuntu3.2.dsc
 
 ARG IMAGE_VERSION=dev
 ARG IMAGE_REVISION=unknown
-ARG STRONGSWAN_ORIG_SHA256=79576bb61b9a406cea9eb73d0c565cc6254a6b6d2e7198f44758d2d7c61a7aec
-ARG STRONGSWAN_DEBIAN_SHA256=2813fea68dc93da2c17cc0c7c8a30e39b61dba333c8bdf7a7e0ce7c6e9d01879
-ARG STRONGSWAN_DSC_SHA256=64c7e3ad1d44ff5b5e287cf02a65e4b51b351a854a2773d90fbb4a2ff8f1f39b
 ARG CNI_VERSION=v0.3.0
 ARG CNI_SHA256=b1ae09833a238c51161918a8849031efdb46cf0068ea5b752e362d9836e2af7d
 ARG CNI_BRIDGE_VERSION=v0.7.2
@@ -65,17 +65,15 @@ RUN set -eux; \
     for package in openssl libssl3t64 openssl-provider-legacy; do \
         test "$(dpkg-query -W -f='${Version}' "$package")" = "${UBUNTU_APT_OPENSSL_VERSION}"; \
     done; \
-    mkdir -p /licenses/strongswan-source; \
-    cd /licenses/strongswan-source; \
-    apt-get source --download-only strongswan="${UBUNTU_APT_STRONGSWAN_VERSION}"; \
-    echo "${STRONGSWAN_ORIG_SHA256}  strongswan_6.0.4.orig.tar.bz2" | sha256sum -c -; \
-    echo "${STRONGSWAN_DEBIAN_SHA256}  strongswan_${UBUNTU_APT_STRONGSWAN_VERSION}.debian.tar.xz" | sha256sum -c -; \
-    echo "${STRONGSWAN_DSC_SHA256}  strongswan_${UBUNTU_APT_STRONGSWAN_VERSION}.dsc" | sha256sum -c -; \
+    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /usr/share/pasturestack/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt; \
+    for package in libstrongswan libstrongswan-extra-plugins libstrongswan-standard-plugins strongswan-charon strongswan-libcharon strongswan-swanctl; do \
+        test "$(dpkg-query -W -f='${Version}' "$package")" = "${UBUNTU_APT_STRONGSWAN_SECURITY_VERSION}"; \
+    done; \
+    test "$(dpkg-query -W -f='${Version}' systemd-standalone-sysusers)" = '259.5-0ubuntu3.4'; \
     mkdir -p /licenses/ubuntu-packages; \
     for package in strongswan-charon strongswan-swanctl libstrongswan-standard-plugins libstrongswan-extra-plugins; do \
         cp "/usr/share/doc/${package}/copyright" "/licenses/ubuntu-packages/${package}-copyright"; \
     done; \
-    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /usr/share/pasturestack/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt; \
     apt-cache showsrc strongswan | grep -Fx "Version: ${UBUNTU_APT_STRONGSWAN_VERSION}"; \
     dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \

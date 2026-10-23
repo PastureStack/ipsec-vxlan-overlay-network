@@ -100,11 +100,22 @@ class OpenSSLPackageContract(unittest.TestCase):
         self.assertLess(workflow.index("python3 tests/test_openssl_package_contract.py"),
                         workflow.index("name: Package the candidate runtime image"))
 
-    def test_source_archives_precede_security_index_overlay(self):
+    def test_security_source_archives_match_the_patched_strongswan_package(self):
         source = self.sources["package/Dockerfile"]
         overlay = source.index("    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh")
-        self.assertLess(source.index("apt-get source --download-only strongswan="), overlay)
-        self.assertLess(source.index('echo "${STRONGSWAN_DSC_SHA256}'), overlay)
+        archives = {
+            "strongswan_6.0.4.orig.tar.bz2": "79576bb61b9a406cea9eb73d0c565cc6254a6b6d2e7198f44758d2d7c61a7aec",
+            "strongswan_6.0.4-1ubuntu3.2.debian.tar.xz": "1f6cfddbefa64298e0cd7dbfcf8dde7eb0b81f708a70f180698a9addbc77e631",
+            "strongswan_6.0.4-1ubuntu3.2.dsc": "ee6958695eaf9f486e7c5eabb90232ed15bf54df054c82d2836ed00f71d82d94",
+        }
+        for archive, digest in archives.items():
+            line = ("ADD --checksum=sha256:" + digest
+                    + " https://snapshot.ubuntu.com/ubuntu/20261023T000000Z/pool/main/s/strongswan/"
+                    + archive + " /licenses/strongswan-source/" + archive)
+            self.assertIn(line, source)
+        self.assertNotIn("apt-get source --download-only", source)
+        self.assertLess(overlay, source.index('cp "/usr/share/doc/${package}/copyright"'))
+        self.assertIn("${UBUNTU_APT_STRONGSWAN_SECURITY_VERSION}", source)
         self.assertLess(overlay, source.index("/licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv"))
 
     def test_security_indexes_are_isolated_and_original_source_remains_readable(self):

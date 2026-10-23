@@ -20,12 +20,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_VERSION: 0.14.39
-      VERSION_OVERRIDE: 0.14.39
-      TAG: 0.14.39
+      CANDIDATE_VERSION: 0.14.40
+      VERSION_OVERRIDE: 0.14.40
+      TAG: 0.14.40
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
-      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.39
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.40
       GO_VERSION: 1.27.3
       GO_LINUX_AMD64_SHA256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
@@ -65,6 +65,7 @@ jobs:
           test "$(git rev-list --count "$reviewed_base"..HEAD)" -ge 1
           python3 tests/test_release_history_contract.py
           python3 tests/test_openssl_package_contract.py
+          python3 tests/test_full_severity_security_contract.py
           source scripts/version
           test "$VERSION" = "$CANDIDATE_VERSION"
           go list -mod=vendor ./... >/dev/null
@@ -76,7 +77,9 @@ jobs:
           mkdir -p evidence
           git ls-tree -r --name-only HEAD | LC_ALL=C sort > evidence/source-tree.txt
           sha256sum go.mod go.sum vendor/modules.txt ubuntu-apt.lock Dockerfile.dapper package/Dockerfile \
-            security/dapper-linux-libc-dev.cves > evidence/source-locks.sha256
+            security/dapper-linux-libc-dev.cves security/ubuntu-security-packages.lock \
+            .github/runtime-unfixed.json .github/dapper-unfixed.json \
+            .github/scripts/enforce-runtime-vulnerabilities.py > evidence/source-locks.sha256
 
       - name: Validate, race-test, integrate metadata, and build reproducibly
         shell: bash
@@ -184,18 +187,27 @@ jobs:
           docker pull "$TRIVY_IMAGE"
           docker run --rm -v "$TRIVY_CACHE:/root/.cache/trivy" \
             "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --download-db-only
-          run_fs_scan() {
-            local source=$1 destination=$2
+          run_path_scan() {
+            local scan_type=$1 source=$2 destination=$3
             docker run --rm --network none \
               -v "$TRIVY_CACHE:/root/.cache/trivy" \
               -v "$source:/scan:ro" -v "$PWD/evidence:/evidence" \
-              "$TRIVY_IMAGE" fs --cache-dir /root/.cache/trivy \
-              --skip-db-update --offline-scan --scanners vuln,secret \
-              --severity CRITICAL,HIGH --format json \
+              "$TRIVY_IMAGE" "$scan_type" --cache-dir /root/.cache/trivy \
+              --skip-db-update --offline-scan --scanners vuln,secret --list-all-pkgs \
+              --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json \
               --output "/evidence/${destination}" /scan
           }
-          run_fs_scan "$source_tree" source-security.json
-          run_fs_scan "$product_tree" product-security.json
+          run_path_scan fs "$source_tree" source-security.json
+          # Filesystem mode intentionally ignores compiled Go executables.
+          # Rootfs mode must identify each delivered ELF, not emit an empty
+          # report that could be mistaken for a clean product scan.
+          run_path_scan rootfs "$product_tree" product-security.json
+          for binary in ipsec-vxlan-overlay-network ipsec-vxlan-overlay-topology pasture-cni-resolver; do
+            test -x "$product_tree/$binary"
+            jq -e --arg binary "$binary" \
+              '[.Results[]? | select(.Type == "gobinary" and .Target == $binary) | .Packages[]?] | length > 0' \
+              evidence/product-security.json >/dev/null
+          done
           docker run --rm --network none \
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$source_tree:/scan:ro" \
             -v "$PWD/evidence:/evidence" "$TRIVY_IMAGE" fs \
@@ -205,7 +217,7 @@ jobs:
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$PWD:/work" -w /work \
             "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy \
             --skip-db-update --offline-scan --scanners vuln,secret \
-            --severity CRITICAL,HIGH --format json \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json \
             --output /work/evidence/runtime-security.json "$IMAGE"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$PWD:/work" -w /work \
@@ -220,7 +232,7 @@ jobs:
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$dapper_rootfs:/scan:ro" \
             -v "$PWD/evidence:/evidence" "$TRIVY_IMAGE" rootfs \
             --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
-            --scanners vuln,secret --severity CRITICAL,HIGH --format json \
+            --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json \
             --output /evidence/dapper-security.json /scan
           docker run --rm --network none \
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$dapper_rootfs:/scan:ro" \
@@ -271,6 +283,15 @@ jobs:
           test -z "$(find "$dapper_rootfs" -type f \
             \( -path '*/boot/vmlinuz*' -o -path '*/lib/modules/*' -o -path '*/usr/lib/modules/*' \) \
             -print -quit)"
+          # Keep the complete builder scan above. Apply the full release policy
+          # separately to non-header packages; never broaden the existing,
+          # exact build-only header scope to other packages or the runtime.
+          jq --arg purl "$dapper_purl" \
+            '.Results |= map(.Vulnerabilities = [(.Vulnerabilities // [])[] |
+              select(.PkgIdentifier.PURL != $purl)])' \
+            evidence/dapper-security.json > evidence/dapper-nonheader-security.json
+          python3 .github/scripts/enforce-runtime-vulnerabilities.py \
+            dapper --repository "$GITHUB_REPOSITORY"
           cut -f1 evidence/dapper-reviewed-matched.tsv | jq -Rn \
             --arg purl "$dapper_purl" \
             --arg timestamp "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
@@ -283,7 +304,7 @@ jobs:
               impact_statement:$impact
             }] | {
               "@context":"https://openvex.dev/ns/v0.2.0",
-              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.39",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.40",
               author:"PastureStack Security",
               timestamp:$timestamp,
               version:1,
@@ -294,12 +315,13 @@ jobs:
             "$(wc -l < evidence/dapper-reviewed-matched.tsv)"
           rm -rf -- "$source_tree" "$product_tree" "$dapper_rootfs"
 
-      - name: Enforce delivered product zero and record disposable builder findings
+      - name: Enforce full-severity product policy and record disposable builder findings
         shell: bash
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           : > evidence/security-summary.txt
+          python3 .github/scripts/test_runtime_vulnerability_policy.py
           for scope in source product runtime; do
             report="evidence/${scope}-security.json"
             secrets=$(jq '[.Results[]?.Secrets[]?] | length' "$report")
@@ -311,6 +333,8 @@ jobs:
             test "$secrets" -eq 0
             test "$critical" -eq 0
             test "$high" -eq 0
+            python3 .github/scripts/enforce-runtime-vulnerabilities.py \
+              "$scope" --repository "$GITHUB_REPOSITORY"
           done
           dapper_secrets=$(jq '[.Results[]?.Secrets[]?] | length' evidence/dapper-security.json)
           dapper_raw_critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' evidence/dapper-security.json)
