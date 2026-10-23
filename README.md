@@ -8,7 +8,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-Candidate `v0.14.40` refreshes the compiler, effective Go dependencies,
+Published [v0.14.40](https://github.com/PastureStack/ipsec-vxlan-overlay-network/releases/tag/v0.14.40) refreshes the compiler, effective Go dependencies,
 official Ubuntu security packages, and checksum-pinned companion binaries.
 The companions are metadata CNI IPAM `v0.2.8`, host-local CNI IPAM `v0.1.6`,
 flat CNI IPAM `v0.1.6`, mount propagation `v1.0.12`, and per-host subnet
@@ -17,9 +17,12 @@ and tests are byte-identical to the historical `v0.2.8` prerelease companion;
 the numeric tag difference does not remove a runtime feature. The security
 APT overlay uses private index/cache paths and verifies that the original
 strongSwan source index remains readable. Networking, CLI/API, CNI, and
-firewall ownership contracts are unchanged. Candidate inputs are not proof
-of publication; require the final release's same-source checks, scan results,
-and immutable image digest before deployment.
+firewall ownership contracts are unchanged. The published image records producer
+`4711833178a05e5d225e364cce856bd108bdc707` and manifest digest
+`sha256:1d39becf00ea540355cb60b430d5d379d38451c1b633ce0d704ef046f44f2c07`.
+See the [official publication](https://github.com/PastureStack/ipsec-vxlan-overlay-network/actions/runs/39971594096)
+for same-source checks and scan evidence. Managed-service upgrade acceptance
+remains separate from publication.
 
 The immutable `v0.14.39` release is retained but is not recommended for new
 deployments: its historical HIGH/CRITICAL-only scan missed officially fixed
