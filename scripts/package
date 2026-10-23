@@ -5,7 +5,7 @@ source "$(dirname "$0")/version"
 cd "$(dirname "$0")/.."
 
 cleanup_package_staging() {
-    rm -f package/ubuntu-apt.lock
+    rm -f package/ubuntu-apt.lock package/security/install-ubuntu-security-updates.sh package/security/ubuntu-security-packages.lock
 }
 trap cleanup_package_staging EXIT
 
@@ -80,6 +80,8 @@ stage_binary mount-propagation "${MOUNT_PROPAGATION_BINARY:-}" "$MOUNT_PROPAGATI
 rm -rf package/licenses
 mkdir -p package/licenses/source package/licenses/vendor
 install -m 0644 ubuntu-apt.lock package/ubuntu-apt.lock
+mkdir -p package/security
+install -m 0644 security/install-ubuntu-security-updates.sh security/ubuntu-security-packages.lock package/security/
 install -m 0644 LICENSE package/licenses/source/LICENSE
 for license in LICENSES/*; do
     install -m 0644 "$license" "package/licenses/source/$(basename "$license")"

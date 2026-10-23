@@ -228,7 +228,7 @@ jobs:
             --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
             --format cyclonedx --output /evidence/dapper-sbom.cdx.json /scan
 
-          dapper_purl='pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04'
+          dapper_purl='pkg:deb/ubuntu/linux-libc-dev@7.0.0-38.38?arch=amd64&distro=ubuntu-26.04'
           jq -r '
             .Results[]?.Vulnerabilities[]?
             | select(.Severity == "CRITICAL" or .Severity == "HIGH")
@@ -256,7 +256,7 @@ jobs:
             echo 'Unreviewed non-header vulnerability in Dapper tooling' >&2
             exit 1
           fi
-          grep -Fx $'linux-libc-dev:amd64\t7.0.0-29.29' \
+          grep -Fx $'linux-libc-dev:amd64\t7.0.0-38.38' \
             evidence/dapper-ubuntu-apt-packages.tsv >/dev/null
           if grep -Eq '^linux-(image|modules)([-:]|[[:space:]])' \
             evidence/dapper-ubuntu-apt-packages.tsv; then

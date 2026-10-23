@@ -1,6 +1,6 @@
 # PastureStack IPsec/VXLAN Overlay Network
 
-Current source builds use Go 1.27.3 while the Go language minimum remains 1.26.0. The selected `golang.org/x/net` version is v0.60.0; its required `golang.org/x/sys` version is v0.48.0. Ubuntu 26.04 images install the checksum-pinned `ca-certificates` 20260816ubuntu0.26.04.1 package without advancing the remaining package snapshot. These source inputs take effect in newly built artifacts; existing published release coordinates below describe their original artifacts.
+Current source builds use Go 1.27.3 while the Go language minimum remains 1.26.0. The selected `golang.org/x/net` version is v0.60.0; its required `golang.org/x/sys` version is v0.48.0. Ubuntu 26.04 images install the checksum-pinned `ca-certificates` 20260816ubuntu0.26.04.1 package with only officially fixed, already-installed packages advanced by the reviewed security overlay. These source inputs take effect in newly built artifacts; existing published release coordinates below describe their original artifacts.
 
 This repository provides the privileged network data plane used by PastureStack. It contains IPsec and VXLAN overlay processes, connectivity checks, CNI runtime assets, and an audit-only topology planner.
 
@@ -205,3 +205,5 @@ bridge firewall must accept mark `0x1068/0x1068`. See
 The official upstream history and original copyright notices are preserved. See [ORIGIN.md](ORIGIN.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [LICENSE](LICENSE) before redistributing this source or its image.
 
 The repository source is licensed under Apache License 2.0. The runtime image also contains separately licensed operating-system packages, including strongSwan under GPL-2.0-or-later with the OpenSSL exception. Those components are not relicensed by PastureStack.
+
+Security micro-updates are constrained by `security/ubuntu-security-packages.lock` to the signed Ubuntu 26.04 snapshot of 2026-10-23; the general package snapshot remains unchanged. Builds record the resulting package versions in `/usr/share/pasturestack/ubuntu-security-packages.tsv`. Existing runtime and firewall contracts are unchanged.

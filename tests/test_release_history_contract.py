@@ -48,6 +48,10 @@ class ReleaseHistoryContract(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.env = os.environ.copy()
+        # The fixture owns a separate repository, even when the caller uses a
+        # linked worktree or exports Git location overrides (for example WSL).
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+            self.env.pop(name, None)
         self.env.update({
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,

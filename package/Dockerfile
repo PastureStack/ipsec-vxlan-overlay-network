@@ -1,6 +1,9 @@
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
 
 COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
+COPY security/install-ubuntu-security-updates.sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh
+COPY security/ubuntu-security-packages.lock /usr/share/pasturestack/ubuntu-security-packages.lock
+
 ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb /tmp/ca-certificates.deb
 ADD --checksum=sha256:44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d057bb340 https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/libssl3t64_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-libssl3t64.deb
 ADD --checksum=sha256:588e7f17afb9263a348c9587330805fc856536402328bec1660ff3a95e61bb4c https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl.deb
@@ -62,6 +65,8 @@ RUN set -eux; \
     for package in openssl libssl3t64 openssl-provider-legacy; do \
         test "$(dpkg-query -W -f='${Version}' "$package")" = "${UBUNTU_APT_OPENSSL_VERSION}"; \
     done; \
+    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /usr/share/pasturestack/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt; \
+    dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     mkdir -p /licenses/strongswan-source; \
     cd /licenses/strongswan-source; \
     apt-get source --download-only strongswan="${UBUNTU_APT_STRONGSWAN_VERSION}"; \
