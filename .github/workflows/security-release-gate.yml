@@ -138,7 +138,7 @@ jobs:
             /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv \
             > evidence/runtime-ubuntu-apt-packages.tsv
           docker run --rm --entrypoint docker "$dapper_image" --version \
-            | grep -F 'Docker version 29.8.0' \
+            | grep -F 'Docker version 29.9.2' \
             > evidence/docker-cli-version.txt
           printf 'DAPPER_IMAGE=%s\n' "$dapper_image" >> "$GITHUB_ENV"
 
