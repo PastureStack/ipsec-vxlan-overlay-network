@@ -190,8 +190,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.38 make build
-TAG=0.14.38 make package
+VERSION_OVERRIDE=0.14.40 make build
+TAG=0.14.40 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves packages from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. The sole package overlay is the checksum-pinned OpenSSL triplet (`openssl`, `libssl3t64`, `openssl-provider-legacy`) at `3.5.5-1ubuntu3.6` from snapshot `20260930T000000Z`, fixing CVE-2026-84782 in both Dapper and runtime without changing other package locks or the kernel-header review boundary. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
