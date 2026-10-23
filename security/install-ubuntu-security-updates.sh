@@ -27,7 +27,7 @@ while IFS= read -r entry || test -n "$entry"; do
 done < "$lock"
 if test "$#" -gt 0; then
     mkdir -p "$tmp/lists/partial"
-    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/20261023T000000Z\nSuites: resolute-updates resolute-security\nComponents: main\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' > "$tmp/security.sources"
+    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/20261023T000000Z\nSuites: resolute-updates resolute-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' > "$tmp/security.sources"
     apt_security() {
         apt-get -o Dir::State::lists="$tmp/lists" \
             -o Dir::Cache::pkgcache="$tmp/pkgcache.bin" \

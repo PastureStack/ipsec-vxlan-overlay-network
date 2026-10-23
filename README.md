@@ -8,7 +8,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-Candidate `v0.14.39` refreshes the compiler, effective Go dependencies,
+Candidate `v0.14.40` refreshes the compiler, effective Go dependencies,
 official Ubuntu security packages, and checksum-pinned companion binaries.
 The companions are metadata CNI IPAM `v0.2.8`, host-local CNI IPAM `v0.1.6`,
 flat CNI IPAM `v0.1.6`, mount propagation `v1.0.12`, and per-host subnet
@@ -20,6 +20,17 @@ strongSwan source index remains readable. Networking, CLI/API, CNI, and
 firewall ownership contracts are unchanged. Candidate inputs are not proof
 of publication; require the final release's same-source checks, scan results,
 and immutable image digest before deployment.
+
+The immutable `v0.14.39` release is retained but is not recommended for new
+deployments: its historical HIGH/CRITICAL-only scan missed officially fixed
+MEDIUM findings in strongSwan and systemd-sysusers. `v0.14.40` pins Ubuntu's
+strongSwan `6.0.4-1ubuntu3.2` and systemd-sysusers `259.5-0ubuntu3.4`, carries
+the matching checksum-bound strongSwan source, and scans all severities.
+Any finding with an official fixed version blocks publication, including
+LOW/MEDIUM; HIGH, CRITICAL, UNKNOWN, secrets, and unregistered findings also
+block. Only exact repository/package/version/PURL LOW/MEDIUM entries backed
+by the official Ubuntu no-fix ledger can pass. The disposable builder's
+kernel-header scope stays separate and never exempts shipped runtime code.
 
 The prior `v0.14.27` source and image were published with manifest digest
 `sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
@@ -150,11 +161,13 @@ two-host endpoint-change acceptance remain separate gates.
 Normal PR merges still require successful Security and CodeQL gates on the exact
 final source SHA before release.
 
-The release gate rejects Critical/High findings and secrets in the source,
+The release gate retains every severity and rejects fixed findings, unreviewed
+findings, Critical/High/Unknown findings, and secrets in the source,
 shipped binaries, and runtime image. It scans the disposable Dapper builder
 separately and retains its raw findings; only exact, already-reviewed
 `linux-libc-dev` header findings receive builder-scoped VEX. New builder
-findings remain visible and are not evidence that the shipped runtime is safe.
+header findings remain explicitly unreviewed; all non-header builder packages
+use the same full-severity, exact no-fix policy in a separate ledger.
 The Dapper image and its kernel headers are not included in the release image.
 
 Preferred commands inside the image are:
