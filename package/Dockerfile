@@ -65,8 +65,6 @@ RUN set -eux; \
     for package in openssl libssl3t64 openssl-provider-legacy; do \
         test "$(dpkg-query -W -f='${Version}' "$package")" = "${UBUNTU_APT_OPENSSL_VERSION}"; \
     done; \
-    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /usr/share/pasturestack/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt; \
-    dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     mkdir -p /licenses/strongswan-source; \
     cd /licenses/strongswan-source; \
     apt-get source --download-only strongswan="${UBUNTU_APT_STRONGSWAN_VERSION}"; \
@@ -77,6 +75,8 @@ RUN set -eux; \
     for package in strongswan-charon strongswan-swanctl libstrongswan-standard-plugins libstrongswan-extra-plugins; do \
         cp "/usr/share/doc/${package}/copyright" "/licenses/ubuntu-packages/${package}-copyright"; \
     done; \
+    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /usr/share/pasturestack/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt; \
+    dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv; \
     rm -rf /var/lib/apt/lists/* /tmp/ca-certificates.deb /tmp/ca-bootstrap \

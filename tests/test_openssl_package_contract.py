@@ -100,6 +100,13 @@ class OpenSSLPackageContract(unittest.TestCase):
         self.assertLess(workflow.index("python3 tests/test_openssl_package_contract.py"),
                         workflow.index("name: Package the candidate runtime image"))
 
+    def test_source_archives_precede_security_index_overlay(self):
+        source = self.sources["package/Dockerfile"]
+        overlay = source.index("    sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh")
+        self.assertLess(source.index("apt-get source --download-only strongswan="), overlay)
+        self.assertLess(source.index('echo "${STRONGSWAN_DSC_SHA256}'), overlay)
+        self.assertLess(overlay, source.index("/licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv"))
+
 
 if __name__ == "__main__":
     unittest.main()
