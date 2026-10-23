@@ -12,3 +12,4 @@
 /package/per-host-subnet
 /package/mount-propagation
 /package/licenses
+__pycache__/

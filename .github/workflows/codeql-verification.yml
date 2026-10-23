@@ -24,8 +24,8 @@ jobs:
       - name: Install verified Go toolchain
         shell: bash
         env:
-          GO_VERSION: 1.27.0
-          GO_LINUX_AMD64_SHA256: 675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
+          GO_VERSION: 1.27.3
+          GO_LINUX_AMD64_SHA256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
         run: |
           set -euo pipefail
           archive="go${GO_VERSION}.linux-amd64.tar.gz"
@@ -53,7 +53,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           go test -run '^$' ./...
           go test -run '^$' -tags=integration ./store
-          VERSION_OVERRIDE=0.14.38 ./scripts/build
+          VERSION_OVERRIDE=0.14.39 ./scripts/build
 
       - name: Analyze without publishing temporary alerts
         uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8

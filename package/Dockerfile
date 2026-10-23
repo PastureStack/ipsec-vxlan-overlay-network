@@ -1,7 +1,7 @@
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
 
 COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
-ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb /tmp/ca-certificates.deb
+ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb /tmp/ca-certificates.deb
 ADD --checksum=sha256:44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d057bb340 https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/libssl3t64_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-libssl3t64.deb
 ADD --checksum=sha256:588e7f17afb9263a348c9587330805fc856536402328bec1660ff3a95e61bb4c https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl.deb
 ADD --checksum=sha256:1b582b937a1f7a8f987da9e1bbfcc806faea714267631ce0fbbd352c924b7daf https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl-provider-legacy_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl-provider-legacy.deb
@@ -38,7 +38,7 @@ RUN set -eux; \
         arptables="${UBUNTU_APT_ARPTABLES_VERSION}" \
         bash="${UBUNTU_APT_BASH_VERSION}" \
         bridge-utils="${UBUNTU_APT_BRIDGE_UTILS_VERSION}" \
-        ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
+        /tmp/ca-certificates.deb \
         conntrack="${UBUNTU_APT_CONNTRACK_VERSION}" \
         curl="${UBUNTU_APT_CURL_VERSION}" \
         ethtool="${UBUNTU_APT_ETHTOOL_VERSION}" \
@@ -58,6 +58,7 @@ RUN set -eux; \
         strongswan-swanctl="${UBUNTU_APT_STRONGSWAN_VERSION}" \
         tar="${UBUNTU_APT_TAR_VERSION}" \
         util-linux="${UBUNTU_APT_UTIL_LINUX_VERSION}"; \
+    test "$(dpkg-query -W -f='${Version}' ca-certificates)" = "${UBUNTU_APT_CA_CERTIFICATES_VERSION}"; \
     for package in openssl libssl3t64 openssl-provider-legacy; do \
         test "$(dpkg-query -W -f='${Version}' "$package")" = "${UBUNTU_APT_OPENSSL_VERSION}"; \
     done; \

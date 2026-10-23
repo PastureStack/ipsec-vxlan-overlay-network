@@ -11,7 +11,7 @@ PastureStack does not relicense third-party work. Copyright, license, and attrib
 | Metadata CNI IPAM | 0.2.7 | [PastureStack/metadata-cni-ipam](https://github.com/PastureStack/metadata-cni-ipam) | Apache-2.0 |
 | Host-local CNI IPAM | 0.1.4 | [PastureStack/host-local-cni-ipam](https://github.com/PastureStack/host-local-cni-ipam) | Apache-2.0 |
 | Flat CNI IPAM | 0.1.4 | [PastureStack/flat-cni-ipam](https://github.com/PastureStack/flat-cni-ipam) | Apache-2.0 |
-| Per-host subnet | 0.2.8 | [PastureStack/per-host-subnet](https://github.com/PastureStack/per-host-subnet) | Apache-2.0 |
+| Per-host subnet | 0.2.5 | [PastureStack/per-host-subnet](https://github.com/PastureStack/per-host-subnet) | Apache-2.0 |
 | Mount propagation | 1.0.11 | [PastureStack/mount-propagation](https://github.com/PastureStack/mount-propagation) | Apache-2.0 |
 
 The reachable Go dependency graph is declared in [`go.mod`](go.mod), checksum-bound by [`go.sum`](go.sum), and materialized in the standard module-aware `vendor` tree. Unreachable historical test-server dependencies are not shipped.

@@ -11,8 +11,8 @@ trap cleanup_package_staging EXIT
 
 METADATA_CNI_IPAM_URL=${METADATA_CNI_IPAM_URL:-https://github.com/PastureStack/metadata-cni-ipam/releases/download/v0.2.7/metadata-cni-ipam-0.2.7-linux-amd64}
 METADATA_CNI_IPAM_SHA256=${METADATA_CNI_IPAM_SHA256:-acde77de17d117f32dd2bbc80dae212c7209165f8101299eaea10561cf058d76}
-PER_HOST_SUBNET_URL=${PER_HOST_SUBNET_URL:-https://github.com/PastureStack/per-host-subnet/releases/download/v0.2.8/per-host-subnet-v0.2.8-linux-amd64}
-PER_HOST_SUBNET_SHA256=${PER_HOST_SUBNET_SHA256:-d12acca4526eee45d52b87541717ae81432225d9c5dabfd823d6b43631c20e84}
+PER_HOST_SUBNET_URL=${PER_HOST_SUBNET_URL:-https://github.com/PastureStack/per-host-subnet/releases/download/v0.2.5/per-host-subnet-v0.2.5-linux-amd64}
+PER_HOST_SUBNET_SHA256=${PER_HOST_SUBNET_SHA256:-cf58d91c9856ed76da7a50206c7e2adb2efb325b3419ab205117e75214123406}
 HOST_LOCAL_CNI_IPAM_URL=${HOST_LOCAL_CNI_IPAM_URL:-https://github.com/PastureStack/host-local-cni-ipam/releases/download/v0.1.4/host-local-cni-ipam-0.1.4-linux-amd64}
 HOST_LOCAL_CNI_IPAM_SHA256=${HOST_LOCAL_CNI_IPAM_SHA256:-9bb79b9f269663715f44aea898854df0e0e319a3ba35e4d52db5477cde026e3e}
 FLAT_CNI_IPAM_URL=${FLAT_CNI_IPAM_URL:-https://github.com/PastureStack/flat-cni-ipam/releases/download/v0.1.5/flat-cni-ipam-v0.1.5-linux-amd64}
