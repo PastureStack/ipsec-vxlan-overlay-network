@@ -47,12 +47,22 @@ def violations(report, ledger, repository):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("report")
-    parser.add_argument("ledger")
+    # Workflows select a known evidence scope, never an arbitrary input path.
+    reports = {
+        "source": "evidence/source-security.json",
+        "product": "evidence/product-security.json",
+        "runtime": "evidence/runtime-security.json",
+        "dapper": "evidence/dapper-nonheader-security.json",
+        "release-runtime": "dist/release/runtime-security.json",
+    }
+    parser.add_argument("scope", choices=tuple(reports))
     parser.add_argument("--repository", required=True)
     args = parser.parse_args()
-    failures = violations(json.loads(Path(args.report).read_text(encoding="utf-8")),
-                          json.loads(Path(args.ledger).read_text(encoding="utf-8")), args.repository)
+    report_path = Path(reports[args.scope])
+    ledger_path = Path(".github/dapper-unfixed.json" if args.scope == "dapper"
+                       else ".github/runtime-unfixed.json")
+    failures = violations(json.loads(report_path.read_text(encoding="utf-8")),
+                          json.loads(ledger_path.read_text(encoding="utf-8")), args.repository)
     if failures:
         raise SystemExit("Release vulnerability policy failed:\n" + "\n".join(failures))
     print("RELEASE_VULNERABILITY_POLICY_OK")

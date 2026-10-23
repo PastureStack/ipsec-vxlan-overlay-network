@@ -11,9 +11,10 @@ class FullSeverityContract(unittest.TestCase):
             self.assertNotIn("--severity CRITICAL,HIGH", source)
             self.assertIn("--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL", source)
             self.assertIn(".github/scripts/enforce-runtime-vulnerabilities.py", source)
-            self.assertIn(".github/runtime-unfixed.json", source)
-            self.assertIn(".github/dapper-unfixed.json", source)
-            self.assertIn("evidence/dapper-nonheader-security.json", source)
+            self.assertIn("dapper-nonheader-security.json", source)
+        policy = (ROOT / ".github/scripts/enforce-runtime-vulnerabilities.py").read_text(encoding="utf-8")
+        self.assertIn(".github/runtime-unfixed.json", policy)
+        self.assertIn(".github/dapper-unfixed.json", policy)
         release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertLess(release.index(".github/scripts/enforce-runtime-vulnerabilities.py"),
                         release.index("- name: Publish a new tag"))

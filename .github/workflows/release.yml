@@ -126,12 +126,11 @@ jobs:
           jq -e '.serialNumber and ((.components // []) | length > 0)' \
             evidence/source-sbom.cdx.json >/dev/null
           python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-            evidence/dapper-nonheader-security.json .github/dapper-unfixed.json \
-            --repository "$GITHUB_REPOSITORY"
+            dapper --repository "$GITHUB_REPOSITORY"
           for scope in source product runtime; do
             report="evidence/${scope}-security.json"
             python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-              "$report" .github/runtime-unfixed.json --repository "$GITHUB_REPOSITORY"
+              "$scope" --repository "$GITHUB_REPOSITORY"
             for field in secrets critical high; do
               grep -Fx "${scope}_${field}=0" evidence/security-summary.txt >/dev/null
             done
@@ -218,8 +217,7 @@ jobs:
           test -s "$release_dir/runtime-security.json"
           python3 .github/scripts/test_runtime_vulnerability_policy.py
           python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-            "$release_dir/runtime-security.json" .github/runtime-unfixed.json \
-            --repository "$GITHUB_REPOSITORY"
+            release-runtime --repository "$GITHUB_REPOSITORY"
           test "$(jq '[.Results[]?.Secrets[]?] | length' "$release_dir/runtime-security.json")" -eq 0
           test "$(jq '[.Results[]?.Vulnerabilities[]? |
             select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' \

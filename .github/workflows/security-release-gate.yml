@@ -282,8 +282,7 @@ jobs:
               select(.PkgIdentifier.PURL != $purl)])' \
             evidence/dapper-security.json > evidence/dapper-nonheader-security.json
           python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-            evidence/dapper-nonheader-security.json .github/dapper-unfixed.json \
-            --repository "$GITHUB_REPOSITORY"
+            dapper --repository "$GITHUB_REPOSITORY"
           cut -f1 evidence/dapper-reviewed-matched.tsv | jq -Rn \
             --arg purl "$dapper_purl" \
             --arg timestamp "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
@@ -326,7 +325,7 @@ jobs:
             test "$critical" -eq 0
             test "$high" -eq 0
             python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-              "$report" .github/runtime-unfixed.json --repository "$GITHUB_REPOSITORY"
+              "$scope" --repository "$GITHUB_REPOSITORY"
           done
           dapper_secrets=$(jq '[.Results[]?.Secrets[]?] | length' evidence/dapper-security.json)
           dapper_raw_critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' evidence/dapper-security.json)
