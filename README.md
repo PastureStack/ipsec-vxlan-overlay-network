@@ -1,8 +1,8 @@
 # PastureStack IPsec/VXLAN Overlay Network
 
-Linux candidate **`v0.14.41`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider. It is unpublished; the last published Linux release is [v0.14.40](https://github.com/PastureStack/ipsec-vxlan-overlay-network/releases/tag/v0.14.40).
+Linux runtime **`v0.14.41`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
 
-Build and image examples below target the candidate. Publication requires completed bundle provenance and the normal final-image release gates. The image retains bundle manifests, source inputs and install/verify receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
+The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
 This repository provides the privileged network data plane used by PastureStack. It contains IPsec and VXLAN overlay processes, connectivity checks, CNI runtime assets, and an audit-only topology planner.
 
@@ -10,7 +10,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-After publication, select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.41` through the infrastructure
+Select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.41` through the infrastructure
 Catalog. Security and CodeQL checks, the release scan and immutable publication
 must pass first. Image publication, Catalog selection and managed-host
 acceptance are separate.
