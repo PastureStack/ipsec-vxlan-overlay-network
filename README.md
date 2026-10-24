@@ -1,6 +1,8 @@
 # PastureStack IPsec/VXLAN Overlay Network
 
-Current source builds use Go 1.27.3 while the Go language minimum remains 1.26.0. The selected `golang.org/x/net` version is v0.60.0; its required `golang.org/x/sys` version is v0.48.0. Ubuntu 26.04 images install the checksum-pinned `ca-certificates` 20260816ubuntu0.26.04.1 package with only officially fixed, already-installed packages advanced by the reviewed security overlay. These source inputs take effect in newly built artifacts; existing published release coordinates below describe their original artifacts.
+Linux candidate **`v0.14.41`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider. It is unpublished; the last published Linux release is [v0.14.40](https://github.com/PastureStack/ipsec-vxlan-overlay-network/releases/tag/v0.14.40).
+
+Build and image examples below target the candidate. Publication requires completed bundle provenance and the normal final-image release gates. The image retains bundle manifests, source inputs and install/verify receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
 This repository provides the privileged network data plane used by PastureStack. It contains IPsec and VXLAN overlay processes, connectivity checks, CNI runtime assets, and an audit-only topology planner.
 
@@ -8,161 +10,21 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-Published [v0.14.40](https://github.com/PastureStack/ipsec-vxlan-overlay-network/releases/tag/v0.14.40) refreshes the compiler, effective Go dependencies,
-official Ubuntu security packages, and checksum-pinned companion binaries.
-The companions are metadata CNI IPAM `v0.2.8`, host-local CNI IPAM `v0.1.6`,
-flat CNI IPAM `v0.1.6`, mount propagation `v1.0.12`, and per-host subnet
-`v0.2.5`. The last is an official Go 1.27.3 rebuild whose Go implementation
-and tests are byte-identical to the historical `v0.2.8` prerelease companion;
-the numeric tag difference does not remove a runtime feature. The security
-APT overlay uses private index/cache paths and verifies that the original
-strongSwan source index remains readable. Networking, CLI/API, CNI, and
-firewall ownership contracts are unchanged. The published image records producer
-`4711833178a05e5d225e364cce856bd108bdc707` and manifest digest
-`sha256:1d39becf00ea540355cb60b430d5d379d38451c1b633ce0d704ef046f44f2c07`.
-See the [official publication](https://github.com/PastureStack/ipsec-vxlan-overlay-network/actions/runs/39971594096)
-for same-source checks and scan evidence. Managed-service upgrade acceptance
-remains separate from publication.
+After publication, select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.41` through the infrastructure
+Catalog. Security and CodeQL checks, the release scan and immutable publication
+must pass first. Image publication, Catalog selection and managed-host
+acceptance are separate.
 
-The immutable `v0.14.39` release is retained but is not recommended for new
-deployments: its historical HIGH/CRITICAL-only scan missed officially fixed
-MEDIUM findings in strongSwan and systemd-sysusers. `v0.14.40` pins Ubuntu's
-strongSwan `6.0.4-1ubuntu3.2` and systemd-sysusers `259.5-0ubuntu3.4`, carries
-the matching checksum-bound strongSwan source, and scans all severities.
-Any finding with an official fixed version blocks publication, including
-LOW/MEDIUM; HIGH, CRITICAL, UNKNOWN, secrets, and unregistered findings also
-block. Only exact repository/package/version/PURL LOW/MEDIUM entries backed
-by the official Ubuntu no-fix ledger can pass. The disposable builder's
-kernel-header scope stays separate and never exempts shipped runtime code.
+The image is launched by the infrastructure Catalog. The IPsec router requires
+host PID access, privileged networking, and the namespace contract in
+[COMPATIBILITY.md](COMPATIBILITY.md). Network Plugin Manager owns host NAT,
+forwarding and host ports; this update preserves that ownership and the
+selected GNU/uutils provider.
 
-The prior `v0.14.27` source and image were published with manifest digest
-`sha256:917c4369ee22808c100dd890d17296fe341e0dda4b2ad2923050f4fca5c22386`
-and release SBOM/provenance attestations. On an isolated Ubuntu 26.04.1 / Docker 29.8 VM, that
-published image selected native nftables without modifying host rules, rejected
-an explicit legacy mismatch, and passed a two-container XFRM/encrypted-packet
-integration test. That test is not a two-physical-host upgrade or reboot gate.
-Publishing the image alone does not change deployments.
-
-`v0.14.28` tightened host firewall detection. Published `v0.14.29` keeps that
-validation but leaves host NAT, forwarding, and host ports solely to Network
-Plugin Manager. The official image manifest is
-`sha256:e65921d3ea7ec3a3582400b0bc2ca3297484375bad42dd61bbf74b1201c18ad1`
-from source commit `276f8fee8ceb64a216a2907fdb0c60394296a208`; the same-commit
-security and CodeQL gates and the release rebuild passed. Upgrade the manager
-and verify it is healthy before upgrading this router; publishing an image and
-updating Catalog are separate gates. Check the Catalog version lock for the
-current deployment coordinate.
-
-The published `v0.14.30` image (manifest
-`sha256:326cec5fa786dbb18df68d10653b3cef1af4785cbb0897aecb616ffcec7914ca`,
-source `8b9e40b88c027c0c3c76720f8077a5a82aa63473`) addresses a
-rolling-upgrade handoff observed on two
-managed hosts: both router generations briefly shared host network port 8111,
-but the old startup guard inspected the holder namespace instead of the host
-namespace where the router actually listens. The new guard checks the target
-namespace before launching the router, waits at most 90 seconds for the prior
-listener to leave, and fails clearly if that cannot be verified. It does not
-change firewall ownership, Docker backend selection, or XFRM policy. Catalog
-Templates `v0.3.4` publishes this image in IPsec Overlay template version `5`;
-that publication is distinct from a completed live rolling-upgrade gate.
-
-The image is intended to be launched by the PastureStack infrastructure catalog. The IPsec router requires host PID access, `NET_ADMIN`-equivalent privileged access, and the network namespace contract documented in [COMPATIBILITY.md](COMPATIBILITY.md). It is not a standalone control plane or an unprivileged application container.
-
-The published `v0.14.31` image (manifest
-`sha256:4d8a51e04bdd27fea3cb2949158103d43e0d2470907c328f76f7a0c6ccec8608`,
-source `22f486cbcbcf92bda91fce555268226eddd723ba`) keeps charon running
-when one peer is temporarily unavailable (for example, during a host reboot).
-The existing 30-second IPsec health reconciliation retries that missing
-CHILD_SA; a stale local peer identity still uses its separate explicit charon
-restart path. This does not change firewall ownership or the selected Docker
-firewall backend. Catalog pinning and live peer-restart verification remain
-separate gates.
-
-The `v0.14.32` change was scoped to IPsec peer lifecycle. Each managed IKE
-connection requests strongSwan's per-peer `unique=replace` policy, including
-older custom templates that omit the option; an explicit template policy is
-preserved. The health reconciler force-removes only a `DELETING` IKE_SA for
-which the same managed peer already has an established replacement with an
-installed CHILD_SA. It never terminates by connection name or changes host
-firewall rules. The isolated two-node regression test now forces concurrent
-initiation and a one-sided peer restart, and requires exactly one working SA
-on each side within a bounded convergence window while encrypted traffic
-continues. This source change is not proof that a Catalog or live host has
-already been upgraded. A subsequent live rolling upgrade on two hosts showed
-that `unique=replace` and cleanup of `DELETING` SAs alone did not converge:
-both peers retained two established SAs, with only one carrying traffic.
-
-`v0.14.33` keeps the 30-second health reconciler as the owner of missing-SA
-recovery and changes the default CHILD `close_action` to `none`, avoiding a
-second automatic initiation path after peer close. Explicit custom CHILD
-templates remain unchanged. After four health cycles, the reconciler may
-terminate only an idle established duplicate for the same managed peer when
-exactly one other installed association has carried traffic. Ambiguous or
-recent pairs, unrelated peers, and other connections are left untouched. The
-live two-host upgrade and traffic gates remain separate from this source fix.
-
-Published `v0.14.34` adds a bounded CNI entrypoint adapter for the official
-per-host-subnet template. Only `bridgeSubnet`, `ipam.subnet`, and optional IP
-range fields containing an explicit `__host_label__:` reference are resolved
-from the local host Metadata API. Literal flat-network CNI documents are
-forwarded byte-for-byte to the preserved bridge binary. Missing required
-labels, malformed IPv4 values, mismatched bridge/IPAM subnets, or metadata
-errors fail before changing the bridge. This does not select or alter the host
-firewall backend; Network Plugin Manager continues to own NAT and host ports.
-Catalog Templates `v0.3.8` pins this image in IPsec Overlay template version
-`9`, and Server `v1.6.436` embeds that Catalog. The official release image
-passed the isolated native-nftables, iptables-nft, and iptables-legacy gates;
-the two-host Catalog upgrade on the managed test environment converged with
-`v0.14.34` running for the router, connectivity check, and CNI driver. Both
-managed hosts were then rebooted one at a time: after agent/CNI startup,
-cross-host TCP, local Metadata/DNS, and HTTPS egress passed in both workload
-namespaces. Startup is asynchronous, so a service-level healthy status alone
-must not be used as proof that a restarted workload has acquired its IP.
-
-`v0.14.35` addressed a separate rolling-upgrade handoff: a
-replacement connectivity-check can briefly share the prior generation's
-network namespace while the old sidecar still owns TCP 80. It waits at most
-90 seconds for that listener to leave, retrying only `EADDRINUSE`; an unrelated
-bind error or exhausted deadline still fails clearly. This stays inside the
-connectivity-check module and does not alter host firewall rules, Docker
-backend selection, or the router's port 8111 ownership. Source tests hold and
-release the port and verify the bounded failure path. Image publication,
-Catalog pinning, and live upgrade acceptance are separate gates for each release.
-
-Published `v0.14.36` updates the packaged preserved bridge compatibility
-binary to `v0.7.2`. In the Layer 2 Flat template it honors
-`skipBridgeConfigureIP`, so the CNI driver does not add another address to an
-operator-owned bridge. It packages `flat-cni-ipam v0.1.4` and does not change
-firewall ownership. Catalog Templates `v0.3.11` pins this image in Layer 2 Flat
-template version `5`; Server `v1.6.439` embeds that Catalog.
-
-Published `v0.14.37` updates only the packaged flat-network IPAM companion to
-`flat-cni-ipam v0.1.5`. When a template expresses `bridgeSubnet` with the
-network address, the IPAM now selects the same first usable gateway derived by
-the bridge plugin if that address is present. This makes restart reconciliation
-deterministic when an operator-owned flat bridge also carries a separate host
-address. Explicit host addresses still win, and an unresolved multi-address
-bridge still fails closed instead of guessing. Firewall ownership and backend
-selection remain unchanged. Publication, Catalog pinning, and live reboot
-acceptance are separate gates.
-
-Candidate `v0.14.38` repairs IPsec connection caching when the local Metadata
-Agent IP changes. Its fingerprint includes that IP and the complete effective
-IKE configuration. A discovered connection name is not a verified fingerprint;
-only a successful `load-conn` updates the cache. Proposals, explicit identities,
-custom CHILD settings, firewall ownership, and backend selection are unchanged.
-
-After the new connection, policies, and host routes load successfully, cleanup
-may terminate only an exact IKE ID for the same managed peer and an old local
-endpoint anchored in this process's previous successful load. This includes a
-CONNECTING association without a CHILD. Foreign children, identities, peers,
-ambiguous IDs, and unknown imported configurations do not authorize cleanup.
-Load failure never updates the cache or triggers this cleanup; no daemon restart
-is added. Unit tests and a Linux cross-build are source-only evidence, not proof
-of publication or live recovery. The release digest, Catalog pinning, and managed
-two-host endpoint-change acceptance remain separate gates.
-Normal PR merges still require successful Security and CodeQL gates on the exact
-final source SHA before release.
+The checksum-pinned companions remain metadata CNI IPAM `v0.2.8`, host-local
+CNI IPAM `v0.1.6`, flat CNI IPAM `v0.1.6`, mount propagation `v1.0.12`, per-host
+subnet `v0.2.5`, and the preserved bridge compatibility binary `v0.7.2`.
+The original strongSwan source and package locks remain independently retained.
 
 The release gate retains every severity and rejects fixed findings, unreviewed
 findings, Critical/High/Unknown findings, and secrets in the source,
@@ -190,11 +52,11 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.40 make build
-TAG=0.14.40 make package
+VERSION_OVERRIDE=0.14.41 make build
+TAG=0.14.41 make package
 ```
 
-The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves packages from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. The sole package overlay is the checksum-pinned OpenSSL triplet (`openssl`, `libssl3t64`, `openssl-provider-legacy`) at `3.5.5-1ubuntu3.6` from snapshot `20260930T000000Z`, fixing CVE-2026-84782 in both Dapper and runtime without changing other package locks or the kernel-header review boundary. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
+The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves packages from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. The build also retains the checksum-pinned OpenSSL triplet (`openssl`, `libssl3t64`, `openssl-provider-legacy`) at `3.5.5-1ubuntu3.6` from snapshot `20260930T000000Z`, fixing CVE-2026-84782 in both Dapper and runtime without changing other package locks or the kernel-header review boundary. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
 
 The release gate also runs `scripts/integration-optional-cni-isolated` against
 the image it just packaged. Inside a disposable, network-isolated container it
@@ -212,8 +74,7 @@ The health reconciler canonicalizes strongSwan VICI CHILD_SA runtime names befor
 
 ## Host firewall backends
 
-The Catalog IPsec `overlay-router` runs in the host network namespace. With
-`v0.14.29`, `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
+The Catalog IPsec `overlay-router` runs in the host network namespace. `PASTURESTACK_FIREWALL_BACKEND=auto` reads Docker's actual
 firewall driver from the mounted Docker socket and verifies that exactly one
 matching Docker-owned firewall backend has live hooks. An explicit selection
 is verified the same way; stale, mixed or mismatched Docker rules, reachable

@@ -51,9 +51,9 @@ if __name__ == "__main__":
     reports = {
         "source": "evidence/source-security.json",
         "product": "evidence/product-security.json",
-        "runtime": "evidence/runtime-security.json",
+        "runtime": "evidence/runtime-security.effective.json",
         "dapper": "evidence/dapper-nonheader-security.json",
-        "release-runtime": "dist/release/runtime-security.json",
+        "release-runtime": "dist/release/runtime-security.effective.json",
     }
     parser.add_argument("scope", choices=tuple(reports))
     parser.add_argument("--repository", required=True)
