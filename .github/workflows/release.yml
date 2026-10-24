@@ -1,6 +1,6 @@
 name: Release IPsec overlay
 
-# A release is dispatched from main only after an annotated v0.14.40 tag and
+# A release is dispatched from main only after an annotated v0.14.41 tag and
 # successful, same-commit Security release gate and CodeQL verification runs.
 # GHCR, registry attestations, and GitHub Releases are not an atomic transaction.
 # All source/product/runtime gates precede the image push. A later failure may
@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing annotated, numeric v0.14.40 tag at main HEAD
+        description: Existing annotated, numeric v0.14.41 tag at main HEAD
         required: true
         type: choice
         options:
-          - v0.14.40
+          - v0.14.41
       security_run_id:
         description: Successful same-SHA Security release gate run ID
         required: true
@@ -35,7 +35,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: ipsec-vxlan-overlay-release-v0.14.40
+  group: ipsec-vxlan-overlay-release-v0.14.41
   cancel-in-progress: false
 
 jobs:
@@ -48,8 +48,8 @@ jobs:
       CODEQL_RUN_ID: ${{ inputs.codeql_run_id }}
       RESUME_DIGEST: ${{ inputs.resume_digest }}
       GH_TOKEN: ${{ github.token }}
-      SERVICE_IMAGE: ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.40
-      LOCAL_IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.40
+      SERVICE_IMAGE: ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.41
+      LOCAL_IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.41
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
       GOFLAGS: -mod=vendor
       GOWORK: off
@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
-          test "$RELEASE_TAG" = v0.14.40
+          test "$RELEASE_TAG" = v0.14.41
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$SECURITY_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$CODEQL_RUN_ID" =~ ^[0-9]+$ ]]
@@ -115,7 +115,7 @@ jobs:
             --name "ipsec-vxlan-overlay-network-security-$SOURCE_SHA" --dir evidence
           for file in SHA256SUMS source-tree.txt source-locks.sha256 product.sha256 \
             security-summary.txt source-security.json product-security.json \
-            runtime-security.json source-sbom.cdx.json dapper-security.json \
+            runtime-security.json runtime-security.effective.json source-sbom.cdx.json dapper-security.json \
             dapper-nonheader-security.json; do
             test -s "evidence/$file"
           done
@@ -134,6 +134,7 @@ jobs:
           done
           for scope in source product runtime; do
             report="evidence/${scope}-security.json"
+            if [ "$scope" = runtime ]; then report=evidence/runtime-security.effective.json; fi
             python3 .github/scripts/enforce-runtime-vulnerabilities.py \
               "$scope" --repository "$GITHUB_REPOSITORY"
             for field in secrets critical high; do
@@ -162,15 +163,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION_OVERRIDE=0.14.40 ./scripts/build
+          VERSION_OVERRIDE=0.14.41 ./scripts/build
           sha256sum --check evidence/product.sha256
           if [ -z "$RESUME_DIGEST" ]; then
-            VERSION_OVERRIDE=0.14.40 TAG=0.14.40 REPO=local/pasturestack \
+            VERSION_OVERRIDE=0.14.41 TAG=0.14.41 REPO=local/pasturestack \
               IMAGE_REVISION="$SOURCE_SHA" ./scripts/package
             test "$(wc -l < dist/images)" -eq 1
             grep -Fx "$LOCAL_IMAGE" dist/images
             test "$(docker image inspect "$LOCAL_IMAGE" \
-              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.40
+              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.41
             test "$(docker image inspect "$LOCAL_IMAGE" \
               --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
             docker tag "$LOCAL_IMAGE" "$SERVICE_IMAGE"
@@ -188,7 +189,7 @@ jobs:
             docker pull "$SERVICE_IMAGE@$RESUME_DIGEST"
             docker tag "$SERVICE_IMAGE@$RESUME_DIGEST" "$SERVICE_IMAGE"
             test "$(docker image inspect "$SERVICE_IMAGE" \
-              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.40
+              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.41
             test "$(docker image inspect "$SERVICE_IMAGE" \
               --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
             verification_container="$(docker create "$SERVICE_IMAGE")"
@@ -209,6 +210,12 @@ jobs:
             docker rm "$verification_container" >/dev/null
             trap - EXIT
           fi
+          release_container=$(docker create "$SERVICE_IMAGE")
+          trap 'docker rm "$release_container" >/dev/null' EXIT
+          docker cp "$release_container:/usr/share/pasturestack/security/ubuntu-backports" "$release_dir/ubuntu-backports"
+          docker rm "$release_container" >/dev/null
+          trap - EXIT
+          (cd "$release_dir/ubuntu-backports" && sha256sum --check SHA256SUMS)
           docker pull "$TRIVY_IMAGE"
           cache="$RUNNER_TEMP/ipsec-release-trivy-cache"
           mkdir -p "$cache"
@@ -220,13 +227,6 @@ jobs:
             --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json \
             --output /release/runtime-security.json "$SERVICE_IMAGE"
           test -s "$release_dir/runtime-security.json"
-          python3 .github/scripts/test_runtime_vulnerability_policy.py
-          python3 .github/scripts/enforce-runtime-vulnerabilities.py \
-            release-runtime --repository "$GITHUB_REPOSITORY"
-          test "$(jq '[.Results[]?.Secrets[]?] | length' "$release_dir/runtime-security.json")" -eq 0
-          test "$(jq '[.Results[]?.Vulnerabilities[]? |
-            select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' \
-            "$release_dir/runtime-security.json")" -eq 0
           docker run --rm --network none -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$cache:/root/.cache/trivy" -v "$release_dir:/release" "$TRIVY_IMAGE" \
             image --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
@@ -234,6 +234,29 @@ jobs:
           test -s "$release_dir/image-sbom.cdx.json"
           jq -e '.serialNumber and ((.components // []) | length > 0)' \
             "$release_dir/image-sbom.cdx.json" >/dev/null
+          # The same immutable OCI supplied this checksum-checked runner guard
+          # during the candidate gate; downloaded evidence is SHA-bound above.
+          (cd evidence/bundle-tools && \
+            test "$(grep -Ec '^[0-9a-f]{64}  verify-consumer-evidence\.py$' SHA256SUMS)" -eq 1 && \
+            grep -E '^[0-9a-f]{64}  verify-consumer-evidence\.py$' SHA256SUMS | sha256sum --check -)
+          python3 evidence/bundle-tools/verify-consumer-evidence.py \
+            --evidence-dir "$release_dir/ubuntu-backports" --sbom "$release_dir/image-sbom.cdx.json" \
+            --bundle-checksums evidence/bundle-tools/SHA256SUMS \
+            --expected-bundle-digest 'sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a' > "$release_dir/ubuntu-backports-validation.json"
+          docker run --rm --network none -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$cache:/root/.cache/trivy" -v "$release_dir:/release" "$TRIVY_IMAGE" \
+            image --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
+            --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --vex /release/ubuntu-backports/openvex.json --format json \
+            --output /release/runtime-security.effective.json "$SERVICE_IMAGE"
+          python3 .github/scripts/test_runtime_vulnerability_policy.py
+          python3 .github/scripts/enforce-runtime-vulnerabilities.py \
+            release-runtime --repository "$GITHUB_REPOSITORY"
+          test "$(jq '[.Results[]?.Secrets[]?] | length' "$release_dir/runtime-security.effective.json")" -eq 0
+          test "$(jq '[.Results[]?.Vulnerabilities[]? |
+            select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' \
+            "$release_dir/runtime-security.effective.json")" -eq 0
+          tar -cf "$release_dir/ubuntu-backports-evidence.tar" -C "$release_dir" ubuntu-backports ubuntu-backports-validation.json
           cp evidence/source-sbom.cdx.json "$release_dir/source-sbom.cdx.json"
           cp evidence/product.sha256 "$release_dir/product.sha256"
           cp evidence/security-summary.txt "$release_dir/gate-security-summary.txt"
@@ -328,7 +351,7 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="dist/release"
-          product_dir="$release_dir/ipsec-vxlan-overlay-network-0.14.40-linux-amd64"
+          product_dir="$release_dir/ipsec-vxlan-overlay-network-0.14.41-linux-amd64"
           mkdir -p "$product_dir"
           cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology bin/pasture-cni-resolver \
             LICENSE ORIGIN.md SECURITY.md THIRD_PARTY_NOTICES.md "$product_dir/"
@@ -340,13 +363,14 @@ jobs:
           find "$product_dir" -exec touch -h -d "@$source_epoch" {} +
           tar --sort=name --mtime="@$source_epoch" --owner=0 --group=0 \
             --numeric-owner -C "$release_dir" \
-            -cJf "$release_dir/ipsec-vxlan-overlay-network-0.14.40-linux-amd64.tar.xz" \
-            ipsec-vxlan-overlay-network-0.14.40-linux-amd64
+            -cJf "$release_dir/ipsec-vxlan-overlay-network-0.14.41-linux-amd64.tar.xz" \
+            ipsec-vxlan-overlay-network-0.14.41-linux-amd64
           (
             cd "$release_dir"
-            sha256sum ipsec-vxlan-overlay-network-0.14.40-linux-amd64.tar.xz \
+            sha256sum ipsec-vxlan-overlay-network-0.14.41-linux-amd64.tar.xz \
               source-sbom.cdx.json image-sbom.cdx.json product.sha256 \
-              runtime-security.json gate-security-summary.txt image-digest.txt \
+              runtime-security.json runtime-security.effective.json ubuntu-backports-evidence.tar \
+              gate-security-summary.txt image-digest.txt \
               release-identity.txt > SHA256SUMS
             sha256sum --check SHA256SUMS
           )
@@ -368,13 +392,15 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title 'IPsec Overlay v0.14.40' \
+            --title 'IPsec Overlay v0.14.41' \
             --notes "Source ${SOURCE_SHA}; Security gate run ${SECURITY_RUN_ID}; CodeQL run ${CODEQL_RUN_ID}. GHCR image ${SERVICE_IMAGE}@$(cat dist/release/image-digest.txt | sed 's/^.*@//')." \
-            dist/release/ipsec-vxlan-overlay-network-0.14.40-linux-amd64.tar.xz \
+            dist/release/ipsec-vxlan-overlay-network-0.14.41-linux-amd64.tar.xz \
             dist/release/source-sbom.cdx.json \
             dist/release/image-sbom.cdx.json \
             dist/release/product.sha256 \
             dist/release/runtime-security.json \
+            dist/release/runtime-security.effective.json \
+            dist/release/ubuntu-backports-evidence.tar \
             dist/release/gate-security-summary.txt \
             dist/release/image-digest.txt \
             dist/release/release-identity.txt \
@@ -382,7 +408,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" |
             jq -e --arg tag "$RELEASE_TAG" \
               '.tag_name == $tag and .draft == false and .prerelease == false and
-               (.assets | length) == 9' >/dev/null
+               (.assets | length) == 11' >/dev/null
 
       - name: Preserve image digest for a safe retry after partial publication
         if: always()
