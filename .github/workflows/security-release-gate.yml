@@ -20,12 +20,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_VERSION: 0.14.41
-      VERSION_OVERRIDE: 0.14.41
-      TAG: 0.14.41
+      CANDIDATE_VERSION: 0.14.42
+      VERSION_OVERRIDE: 0.14.42
+      TAG: 0.14.42
       IMAGE_REVISION: ${{ github.sha }}
       REPO: local/pasturestack
-      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.41
+      IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.42
       GO_VERSION: 1.27.3
       GO_LINUX_AMD64_SHA256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
@@ -226,7 +226,7 @@ jobs:
             "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy \
             --skip-db-update --offline-scan --format cyclonedx \
             --output /work/evidence/runtime-sbom.cdx.json "$IMAGE"
-          bundle_image='ghcr.io/pasturestack/ubuntu-security-backports:v0.1.0@sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a'
+          bundle_image='ghcr.io/pasturestack/ubuntu-security-backports:v0.1.1@sha256:45d6b507b63a18459ae5cf76afd4d9731f8ef43b9c40e4c3dbb01899e1752b19'
           mkdir -p evidence/bundle-tools
           bundle_container=$(docker create "$bundle_image" unused)
           trap 'docker rm "$bundle_container" >/dev/null' EXIT
@@ -240,7 +240,7 @@ jobs:
           python3 evidence/bundle-tools/verify-consumer-evidence.py \
             --evidence-dir evidence/ubuntu-backports --sbom evidence/runtime-sbom.cdx.json \
             --bundle-checksums evidence/bundle-tools/SHA256SUMS \
-            --expected-bundle-digest 'sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a' > evidence/ubuntu-backports-validation.json
+            --expected-bundle-digest 'sha256:45d6b507b63a18459ae5cf76afd4d9731f8ef43b9c40e4c3dbb01899e1752b19' > evidence/ubuntu-backports-validation.json
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$TRIVY_CACHE:/root/.cache/trivy" -v "$PWD:/work" -w /work "$TRIVY_IMAGE" \
             image --cache-dir /root/.cache/trivy --skip-db-update --offline-scan --scanners vuln,secret \
@@ -326,7 +326,7 @@ jobs:
               impact_statement:$impact
             }] | {
               "@context":"https://openvex.dev/ns/v0.2.0",
-              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.41",
+              "@id":"https://github.com/PastureStack/ipsec-vxlan-overlay-network/security/openvex/dapper/0.14.42",
               author:"PastureStack Security",
               timestamp:$timestamp,
               version:1,

@@ -1,6 +1,6 @@
 name: Release IPsec overlay
 
-# A release is dispatched from main only after an annotated v0.14.41 tag and
+# A release is dispatched from main only after an annotated v0.14.42 tag and
 # successful, same-commit Security release gate and CodeQL verification runs.
 # GHCR, registry attestations, and GitHub Releases are not an atomic transaction.
 # All source/product/runtime gates precede the image push. A later failure may
@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing annotated, numeric v0.14.41 tag at main HEAD
+        description: Existing annotated, numeric v0.14.42 tag at main HEAD
         required: true
         type: choice
         options:
-          - v0.14.41
+          - v0.14.42
       security_run_id:
         description: Successful same-SHA Security release gate run ID
         required: true
@@ -35,7 +35,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: ipsec-vxlan-overlay-release-v0.14.41
+  group: ipsec-vxlan-overlay-release-v0.14.42
   cancel-in-progress: false
 
 jobs:
@@ -48,8 +48,8 @@ jobs:
       CODEQL_RUN_ID: ${{ inputs.codeql_run_id }}
       RESUME_DIGEST: ${{ inputs.resume_digest }}
       GH_TOKEN: ${{ github.token }}
-      SERVICE_IMAGE: ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.41
-      LOCAL_IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.41
+      SERVICE_IMAGE: ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.42
+      LOCAL_IMAGE: local/pasturestack/ipsec-vxlan-overlay-network:0.14.42
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
       GOFLAGS: -mod=vendor
       GOWORK: off
@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
-          test "$RELEASE_TAG" = v0.14.41
+          test "$RELEASE_TAG" = v0.14.42
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$SECURITY_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$CODEQL_RUN_ID" =~ ^[0-9]+$ ]]
@@ -163,15 +163,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION_OVERRIDE=0.14.41 ./scripts/build
+          VERSION_OVERRIDE=0.14.42 ./scripts/build
           sha256sum --check evidence/product.sha256
           if [ -z "$RESUME_DIGEST" ]; then
-            VERSION_OVERRIDE=0.14.41 TAG=0.14.41 REPO=local/pasturestack \
+            VERSION_OVERRIDE=0.14.42 TAG=0.14.42 REPO=local/pasturestack \
               IMAGE_REVISION="$SOURCE_SHA" ./scripts/package
             test "$(wc -l < dist/images)" -eq 1
             grep -Fx "$LOCAL_IMAGE" dist/images
             test "$(docker image inspect "$LOCAL_IMAGE" \
-              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.41
+              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.42
             test "$(docker image inspect "$LOCAL_IMAGE" \
               --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
             docker tag "$LOCAL_IMAGE" "$SERVICE_IMAGE"
@@ -189,7 +189,7 @@ jobs:
             docker pull "$SERVICE_IMAGE@$RESUME_DIGEST"
             docker tag "$SERVICE_IMAGE@$RESUME_DIGEST" "$SERVICE_IMAGE"
             test "$(docker image inspect "$SERVICE_IMAGE" \
-              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.41
+              --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = 0.14.42
             test "$(docker image inspect "$SERVICE_IMAGE" \
               --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
             verification_container="$(docker create "$SERVICE_IMAGE")"
@@ -242,7 +242,7 @@ jobs:
           python3 evidence/bundle-tools/verify-consumer-evidence.py \
             --evidence-dir "$release_dir/ubuntu-backports" --sbom "$release_dir/image-sbom.cdx.json" \
             --bundle-checksums evidence/bundle-tools/SHA256SUMS \
-            --expected-bundle-digest 'sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a' > "$release_dir/ubuntu-backports-validation.json"
+            --expected-bundle-digest 'sha256:45d6b507b63a18459ae5cf76afd4d9731f8ef43b9c40e4c3dbb01899e1752b19' > "$release_dir/ubuntu-backports-validation.json"
           docker run --rm --network none -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$cache:/root/.cache/trivy" -v "$release_dir:/release" "$TRIVY_IMAGE" \
             image --cache-dir /root/.cache/trivy --skip-db-update --offline-scan \
@@ -351,7 +351,7 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="dist/release"
-          product_dir="$release_dir/ipsec-vxlan-overlay-network-0.14.41-linux-amd64"
+          product_dir="$release_dir/ipsec-vxlan-overlay-network-0.14.42-linux-amd64"
           mkdir -p "$product_dir"
           cp bin/ipsec-vxlan-overlay-network bin/ipsec-vxlan-overlay-topology bin/pasture-cni-resolver \
             LICENSE ORIGIN.md SECURITY.md THIRD_PARTY_NOTICES.md "$product_dir/"
@@ -363,11 +363,11 @@ jobs:
           find "$product_dir" -exec touch -h -d "@$source_epoch" {} +
           tar --sort=name --mtime="@$source_epoch" --owner=0 --group=0 \
             --numeric-owner -C "$release_dir" \
-            -cJf "$release_dir/ipsec-vxlan-overlay-network-0.14.41-linux-amd64.tar.xz" \
-            ipsec-vxlan-overlay-network-0.14.41-linux-amd64
+            -cJf "$release_dir/ipsec-vxlan-overlay-network-0.14.42-linux-amd64.tar.xz" \
+            ipsec-vxlan-overlay-network-0.14.42-linux-amd64
           (
             cd "$release_dir"
-            sha256sum ipsec-vxlan-overlay-network-0.14.41-linux-amd64.tar.xz \
+            sha256sum ipsec-vxlan-overlay-network-0.14.42-linux-amd64.tar.xz \
               source-sbom.cdx.json image-sbom.cdx.json product.sha256 \
               runtime-security.json runtime-security.effective.json ubuntu-backports-evidence.tar \
               gate-security-summary.txt image-digest.txt \
@@ -392,9 +392,9 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title 'IPsec Overlay v0.14.41' \
+            --title 'IPsec Overlay v0.14.42' \
             --notes "Source ${SOURCE_SHA}; Security gate run ${SECURITY_RUN_ID}; CodeQL run ${CODEQL_RUN_ID}. GHCR image ${SERVICE_IMAGE}@$(cat dist/release/image-digest.txt | sed 's/^.*@//')." \
-            dist/release/ipsec-vxlan-overlay-network-0.14.41-linux-amd64.tar.xz \
+            dist/release/ipsec-vxlan-overlay-network-0.14.42-linux-amd64.tar.xz \
             dist/release/source-sbom.cdx.json \
             dist/release/image-sbom.cdx.json \
             dist/release/product.sha256 \

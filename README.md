@@ -1,6 +1,8 @@
 # PastureStack IPsec/VXLAN Overlay Network
 
-Linux runtime **`v0.14.41`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+Linux runtime **`v0.14.42`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+
+The shared bundle includes the official Brotli decoder fix for CVE-2026-111497.
 
 The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
@@ -10,7 +12,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-Select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.41` through the infrastructure
+Select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.42` through the infrastructure
 Catalog. Security and CodeQL checks, the release scan and immutable publication
 must pass first. Image publication, Catalog selection and managed-host
 acceptance are separate.
@@ -52,8 +54,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.41 make build
-TAG=0.14.41 make package
+VERSION_OVERRIDE=0.14.42 make build
+TAG=0.14.42 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves packages from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. The build also retains the checksum-pinned OpenSSL triplet (`openssl`, `libssl3t64`, `openssl-provider-legacy`) at `3.5.5-1ubuntu3.6` from snapshot `20260930T000000Z`, fixing CVE-2026-84782 in both Dapper and runtime without changing other package locks or the kernel-header review boundary. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
