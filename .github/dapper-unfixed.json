@@ -1101,6 +1101,39 @@
       "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
       "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
       "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-35370",
+      "package": "rust-coreutils",
+      "version": "0.10.0-1ubuntu2~26.04.1",
+      "purl": "pkg:deb/ubuntu/rust-coreutils@0.10.0-1ubuntu2~26.04.1?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2026/UBUNTU-CVE-2026-35370.json",
+      "reason": "Canonical records the exact Ubuntu 26.04 binary as affected without a fixed event.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-35371",
+      "package": "rust-coreutils",
+      "version": "0.10.0-1ubuntu2~26.04.1",
+      "purl": "pkg:deb/ubuntu/rust-coreutils@0.10.0-1ubuntu2~26.04.1?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2026/UBUNTU-CVE-2026-35371.json",
+      "reason": "Canonical records the exact Ubuntu 26.04 binary as affected without a fixed event.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-85747",
+      "package": "github.com/docker/distribution",
+      "version": "v2.8.3+incompatible",
+      "purl": "pkg:golang/github.com/docker/distribution@v2.8.3%2Bincompatible",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://github.com/distribution/distribution/security/advisories/GHSA-685w-q87j-wqw3",
+      "reason": "Upstream fixes the v3 client in v3.1.2. The upstream Docker CLI still embeds the v2 import path, which has no published fix. Track migration to the patched module in the disposable builder.",
+      "checkedAt": "2026-11-13"
     }
   ]
 }
