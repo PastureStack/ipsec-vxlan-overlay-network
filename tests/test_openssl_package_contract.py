@@ -8,8 +8,8 @@ import unittest
 BASE = Path(__file__).resolve().parents[1]
 VERSION = "3.5.5-1ubuntu3.6"
 SNAPSHOT = "20260930T000000Z"
-CA_VERSION = "20260816ubuntu0.26.04.1"
-CA_SHA256 = "5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd"
+CA_VERSION = "20260816ubuntu0.26.04.2"
+CA_SHA256 = "a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6"
 # Canonical snapshot resolute-security/main/binary-amd64/Packages.gz SHA256 fields.
 PACKAGES = {
     "libssl3t64": "44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d057bb340",
@@ -40,7 +40,7 @@ def verify_dockerfile(source):
     if sorted(local_debs) != sorted([item[2] for item in expected] + ["/tmp/ca-certificates.deb"]):
         raise ValueError("exact OpenSSL triplet and CA package required in apt transaction")
     ca_add = ("ADD --checksum=sha256:" + CA_SHA256
-              + " https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/"
+              + " https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/"
               + "ca-certificates_" + CA_VERSION + "_all.deb /tmp/ca-certificates.deb")
     ca_check = "test \"$(dpkg-query -W -f='${Version}' ca-certificates)\" = \"${UBUNTU_APT_CA_CERTIFICATES_VERSION}\""
     if source.count(ca_add) != 1 or source.count(ca_check) != 1:
