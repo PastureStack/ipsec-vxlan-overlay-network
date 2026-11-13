@@ -9,16 +9,16 @@ cleanup_package_staging() {
 }
 trap cleanup_package_staging EXIT
 
-METADATA_CNI_IPAM_URL=${METADATA_CNI_IPAM_URL:-https://github.com/PastureStack/metadata-cni-ipam/releases/download/v0.2.8/metadata-cni-ipam-0.2.8-linux-amd64}
-METADATA_CNI_IPAM_SHA256=${METADATA_CNI_IPAM_SHA256:-9e9d0cd9bd5abe316d6580d6d01e022fa6b13c2dabfcb43a90501b45d4147869}
-PER_HOST_SUBNET_URL=${PER_HOST_SUBNET_URL:-https://github.com/PastureStack/per-host-subnet/releases/download/v0.2.5/per-host-subnet-v0.2.5-linux-amd64}
-PER_HOST_SUBNET_SHA256=${PER_HOST_SUBNET_SHA256:-cf58d91c9856ed76da7a50206c7e2adb2efb325b3419ab205117e75214123406}
-HOST_LOCAL_CNI_IPAM_URL=${HOST_LOCAL_CNI_IPAM_URL:-https://github.com/PastureStack/host-local-cni-ipam/releases/download/v0.1.6/host-local-cni-ipam-0.1.6-linux-amd64}
-HOST_LOCAL_CNI_IPAM_SHA256=${HOST_LOCAL_CNI_IPAM_SHA256:-7648f7b6c7bfb643785b025e33ab0a03507d76f201ff7a0d9d95b4f89309f684}
-FLAT_CNI_IPAM_URL=${FLAT_CNI_IPAM_URL:-https://github.com/PastureStack/flat-cni-ipam/releases/download/v0.1.6/flat-cni-ipam-v0.1.6-linux-amd64}
-FLAT_CNI_IPAM_SHA256=${FLAT_CNI_IPAM_SHA256:-88f3eacdacd5be185de51f473fa26e72732926bb8739cd045e8c04c5d6dea98e}
-MOUNT_PROPAGATION_URL=${MOUNT_PROPAGATION_URL:-https://github.com/PastureStack/mount-propagation/releases/download/v1.0.12/mount-propagation-v1.0.12-linux-amd64}
-MOUNT_PROPAGATION_SHA256=${MOUNT_PROPAGATION_SHA256:-aede2dc837985c8d86e4334aaa794b88700eb60974e9425c5f97233bd95094b9}
+METADATA_CNI_IPAM_URL=${METADATA_CNI_IPAM_URL:-https://github.com/PastureStack/metadata-cni-ipam/releases/download/v0.2.9/metadata-cni-ipam-0.2.9-linux-amd64}
+METADATA_CNI_IPAM_SHA256=${METADATA_CNI_IPAM_SHA256:-4fa9b29b65224b0b3e7e4f1fa2a9bb4b72bc1e0cba7c8b45da4275ebefef5ef9}
+PER_HOST_SUBNET_URL=${PER_HOST_SUBNET_URL:-https://github.com/PastureStack/per-host-subnet/releases/download/v0.2.6/per-host-subnet-v0.2.6-linux-amd64}
+PER_HOST_SUBNET_SHA256=${PER_HOST_SUBNET_SHA256:-ed10b1cfaf7499a490dcced300d77309990ea2995d6d8caa49a75bb061f56031}
+HOST_LOCAL_CNI_IPAM_URL=${HOST_LOCAL_CNI_IPAM_URL:-https://github.com/PastureStack/host-local-cni-ipam/releases/download/v0.1.7/host-local-cni-ipam-0.1.7-linux-amd64}
+HOST_LOCAL_CNI_IPAM_SHA256=${HOST_LOCAL_CNI_IPAM_SHA256:-d12473996da6a34cf9976819512b0274cf28cf0cdb7764803b8db842295a3025}
+FLAT_CNI_IPAM_URL=${FLAT_CNI_IPAM_URL:-https://github.com/PastureStack/flat-cni-ipam/releases/download/v0.1.7/flat-cni-ipam-v0.1.7-linux-amd64}
+FLAT_CNI_IPAM_SHA256=${FLAT_CNI_IPAM_SHA256:-0a10d47a4b11b77c84550099f787966f506678dd4440a56655159155681a4876}
+MOUNT_PROPAGATION_URL=${MOUNT_PROPAGATION_URL:-https://github.com/PastureStack/mount-propagation/releases/download/v1.0.14/mount-propagation-v1.0.14-linux-amd64}
+MOUNT_PROPAGATION_SHA256=${MOUNT_PROPAGATION_SHA256:-4fc8d67e3ff894922b09b4857a70bf62d41b298ae6983d37d7dab3fb157cdedb}
 
 TAG=${TAG:-${VERSION}}
 REPO=${REPO:-ghcr.io/${IMAGE_NAMESPACE:-pasturestack}}
@@ -94,6 +94,18 @@ while IFS= read -r -d '' license; do
     mkdir -p "package/licenses/vendor/$(dirname "$relative")"
     install -m 0644 "$license" "package/licenses/vendor/$relative"
 done < <(find vendor -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'PATENTS*' \) -print0)
+
+if [ "${CHECK_QUALIFIED_BACKPORTS:-0}" = 1 ]; then
+    docker build --target qualified_backports \
+        --pull \
+        --platform linux/amd64 \
+        --provenance=false \
+        --network "${DOCKER_BUILD_NETWORK:-host}" \
+        --build-arg IMAGE_VERSION="$TAG" \
+        --build-arg IMAGE_REVISION="$IMAGE_REVISION" \
+        -t "$REPO/$IMAGE_NAME:$TAG-backports" \
+        package
+fi
 
 docker build \
     --pull \

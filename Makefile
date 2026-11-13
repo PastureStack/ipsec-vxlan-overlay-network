@@ -3,7 +3,6 @@ TARGETS := $(shell ls scripts)
 
 DAPPER_IMAGE ?= pasturestack-overlay-network-dapper:ubuntu26
 DAPPER_HOST_ARCH ?= amd64
-DOCKER_VERSION ?= 29.9.2
 DOCKER_BUILD_NETWORK ?= host
 DAPPER_SOURCE ?= /go/src/github.com/PastureStack/ipsec-vxlan-overlay-network
 
@@ -11,7 +10,6 @@ DAPPER_SOURCE ?= /go/src/github.com/PastureStack/ipsec-vxlan-overlay-network
 >docker build \
 >  --pull \
 >  --build-arg DAPPER_HOST_ARCH=$(DAPPER_HOST_ARCH) \
->  --build-arg DOCKER_VERSION=$(DOCKER_VERSION) \
 >  --network $(DOCKER_BUILD_NETWORK) \
 >  -t $(DAPPER_IMAGE) \
 >  -f Dockerfile.dapper .
