@@ -936,6 +936,171 @@
       "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-78408.json",
       "reason": "Canonical OSV lists the exact Ubuntu 26.04 util-linux binary without a fixed range endpoint.",
       "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "binutils",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/binutils@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "binutils-common",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/binutils-common@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "binutils-x86-64-linux-gnu",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/binutils-x86-64-linux-gnu@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-9403",
+      "package": "jq",
+      "version": "1.8.1-4ubuntu2",
+      "purl": "pkg:deb/ubuntu/jq@1.8.1-4ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://ubuntu.com/security/CVE-2025-9403",
+      "reason": "Canonical lists Ubuntu 26.04 jq as needs evaluation without a fixed package.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "libbinutils",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libbinutils@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "libctf-nobfd0",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libctf-nobfd0@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "libctf0",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libctf0@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-102633",
+      "package": "libexpat1",
+      "version": "2.7.4-1ubuntu0.2",
+      "purl": "pkg:deb/ubuntu/libexpat1@2.7.4-1ubuntu0.2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2026/UBUNTU-CVE-2026-102633.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-93990",
+      "package": "libexpat1",
+      "version": "2.7.4-1ubuntu0.2",
+      "purl": "pkg:deb/ubuntu/libexpat1@2.7.4-1ubuntu0.2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2026/UBUNTU-CVE-2026-93990.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "libgprofng0",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libgprofng0@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-9403",
+      "package": "libjq1",
+      "version": "1.8.1-4ubuntu2",
+      "purl": "pkg:deb/ubuntu/libjq1@1.8.1-4ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://ubuntu.com/security/CVE-2025-9403",
+      "reason": "Canonical lists Ubuntu 26.04 jq as needs evaluation without a fixed package.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-9538",
+      "package": "libperl5.40",
+      "version": "5.40.1-7ubuntu0.4",
+      "purl": "pkg:deb/ubuntu/libperl5.40@5.40.1-7ubuntu0.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
+      "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2025-66863",
+      "package": "libsframe3",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libsframe3@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/1820a9703253548155e22e8d0b31facddb88cfb1/osv/cve/2025/UBUNTU-CVE-2025-66863.json",
+      "reason": "Canonical Ubuntu 26.04 OSV lists this exact installed binary package without a fixed version. Verified against the original Dapper report for run 43348507878.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-9538",
+      "package": "perl",
+      "version": "5.40.1-7ubuntu0.4",
+      "purl": "pkg:deb/ubuntu/perl@5.40.1-7ubuntu0.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
+      "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-9538",
+      "package": "perl-modules-5.40",
+      "version": "5.40.1-7ubuntu0.4",
+      "purl": "pkg:deb/ubuntu/perl-modules-5.40@5.40.1-7ubuntu0.4?arch=all&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
+      "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
+      "checkedAt": "2026-11-13"
     }
   ]
 }

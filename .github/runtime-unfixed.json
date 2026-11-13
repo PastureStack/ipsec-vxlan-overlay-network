@@ -692,6 +692,39 @@
       "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-78408.json",
       "reason": "Canonical OSV lists the exact Ubuntu 26.04 util-linux binary without a fixed range endpoint.",
       "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-9538",
+      "package": "libperl5.40",
+      "version": "5.40.1-7ubuntu0.4",
+      "purl": "pkg:deb/ubuntu/libperl5.40@5.40.1-7ubuntu0.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
+      "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-9538",
+      "package": "perl",
+      "version": "5.40.1-7ubuntu0.4",
+      "purl": "pkg:deb/ubuntu/perl@5.40.1-7ubuntu0.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
+      "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
+      "checkedAt": "2026-11-13"
+    },
+    {
+      "id": "CVE-2026-9538",
+      "package": "perl-modules-5.40",
+      "version": "5.40.1-7ubuntu0.4",
+      "purl": "pkg:deb/ubuntu/perl-modules-5.40@5.40.1-7ubuntu0.4?arch=all&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
+      "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
+      "checkedAt": "2026-11-13"
     }
   ],
   "repository": "PastureStack/ipsec-vxlan-overlay-network"
