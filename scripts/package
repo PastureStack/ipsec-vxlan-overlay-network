@@ -95,6 +95,18 @@ while IFS= read -r -d '' license; do
     install -m 0644 "$license" "package/licenses/vendor/$relative"
 done < <(find vendor -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'PATENTS*' \) -print0)
 
+if [ "${CHECK_QUALIFIED_BACKPORTS:-0}" = 1 ]; then
+    docker build --target qualified_backports \
+        --pull \
+        --platform linux/amd64 \
+        --provenance=false \
+        --network "${DOCKER_BUILD_NETWORK:-host}" \
+        --build-arg IMAGE_VERSION="$TAG" \
+        --build-arg IMAGE_REVISION="$IMAGE_REVISION" \
+        -t "$REPO/$IMAGE_NAME:$TAG-backports" \
+        package
+fi
+
 docker build \
     --pull \
     --platform linux/amd64 \
