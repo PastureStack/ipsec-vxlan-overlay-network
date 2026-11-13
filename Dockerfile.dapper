@@ -16,6 +16,8 @@ ADD --checksum=sha256:44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d05
 ADD --checksum=sha256:588e7f17afb9263a348c9587330805fc856536402328bec1660ff3a95e61bb4c https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl.deb
 ADD --checksum=sha256:1b582b937a1f7a8f987da9e1bbfcc806faea714267631ce0fbbd352c924b7daf https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl-provider-legacy_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl-provider-legacy.deb
 
+ADD --checksum=sha256:bedeef1cf3268f90338c411cdb0a45b224d0660fd2240f310f380316c8244606 https://security.ubuntu.com/ubuntu/pool/main/b/brotli/libbrotli1_1.2.0-3ubuntu0.1_amd64.deb /tmp/libbrotli1-security.deb
+
 ARG DAPPER_HOST_ARCH=amd64
 ARG GO_VERSION=1.27.4
 ARG DOCKER_VERSION=29.9.2
@@ -67,6 +69,12 @@ RUN set -eux; \
     printf '%s\n' libperl5.40=5.40.1-7ubuntu0.4 perl=5.40.1-7ubuntu0.4 perl-base=5.40.1-7ubuntu0.4 perl-modules-5.40=5.40.1-7ubuntu0.4 > /tmp/ubuntu-perl-security.lock; \
     UBUNTU_SECURITY_ARCHIVE=https://archive.ubuntu.com/ubuntu sh /usr/local/lib/pasturestack/install-ubuntu-security-updates.sh /tmp/ubuntu-perl-security.lock /etc/ssl/certs/ca-certificates.crt; \
     rm -f /tmp/ubuntu-perl-security.lock; \
+    test "$(dpkg-deb -f /tmp/libbrotli1-security.deb Package)" = libbrotli1; \
+    test "$(dpkg-deb -f /tmp/libbrotli1-security.deb Version)" = 1.2.0-3ubuntu0.1; \
+    test "$(dpkg-deb -f /tmp/libbrotli1-security.deb Architecture)" = amd64; \
+    dpkg -i /tmp/libbrotli1-security.deb; \
+    test "$(dpkg-query -W -f='${Version}' libbrotli1)" = 1.2.0-3ubuntu0.1; \
+    rm -f /tmp/libbrotli1-security.deb; \
     dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/IPSEC-VXLAN-OVERLAY-DAPPER-UBUNTU-APT-PACKAGES.tsv; \
