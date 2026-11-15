@@ -1,8 +1,8 @@
 # PastureStack IPsec/VXLAN Overlay Network
 
-Linux runtime **`v0.14.43`** uses Go 1.27.4 and Canonical-signed Ubuntu 26.04 APT, CA, glibc, PCRE2 and rust-coreutils updates while preserving the selected coreutils provider.
+Linux runtime **`v0.14.44`** uses Go 1.27.4 and Canonical-signed Ubuntu 26.04 APT, CA and glibc updates while preserving the selected coreutils provider. The runtime retains the qualified PCRE2 and rust-coreutils backports.
 
-The shared bundle includes the official Brotli decoder fix for CVE-2026-111497.
+The final image installs Canonical's Ubuntu 26.04 package `libbrotli1 1.2.0-3ubuntu0.1` from the signed `20261107T200000Z` security snapshot for [USN-8956-1](https://ubuntu.com/security/notices/USN-8956-1).
 
 The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
@@ -12,8 +12,8 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Release status
 
-Select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.43` through the infrastructure
-Catalog. The [release](https://github.com/PastureStack/ipsec-vxlan-overlay-network/releases/tag/v0.14.43) includes the image digest, provenance and SBOM. The release candidate passed isolated two-node IPsec and VXLAN forwarding and CNI lifecycle checks.
+Select `ghcr.io/pasturestack/ipsec-vxlan-overlay-network:v0.14.44` through the infrastructure
+Catalog. The [release](https://github.com/PastureStack/ipsec-vxlan-overlay-network/releases/tag/v0.14.44) includes the image digest, provenance and SBOM. The release candidate passed isolated two-node IPsec and VXLAN forwarding and CNI lifecycle checks.
 
 The image is launched by the infrastructure Catalog. The IPsec router requires
 host PID access, privileged networking, and the namespace contract in
@@ -50,8 +50,8 @@ The build is containerized and requires Docker on a Linux AMD64 host:
 ```sh
 make test
 make validate
-VERSION_OVERRIDE=0.14.43 make build
-TAG=0.14.43 make package
+VERSION_OVERRIDE=0.14.44 make build
+TAG=0.14.44 make package
 ```
 
 The package build downloads dependencies anonymously, verifies every standalone binary with SHA-256, pins the Ubuntu base image by digest, resolves packages from Canonical snapshot `20260808T000000Z` with the exact versions in `ubuntu-apt.lock`, and includes the corresponding strongSwan source archives in the image. The OpenSSL triplet (`openssl`, `libssl3t64`, `openssl-provider-legacy`) resolves to `3.5.5-1ubuntu3.7` from the Ubuntu security package lock. APT terminates the build if an index update or verification fails. Go dependencies are declared in `go.mod`, checksum-bound by `go.sum`, and committed in the standard module-aware `vendor` tree for offline builds.
