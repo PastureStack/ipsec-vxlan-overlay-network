@@ -9,8 +9,10 @@ RUN set -eux; \
     cp vendor.sum go.sum; \
     export GOTOOLCHAIN=local GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
     go get golang.org/x/net@v0.62.0 \
-        go.opentelemetry.io/otel/sdk@v1.47.0 go.opentelemetry.io/otel/trace@v1.47.0; \
+        go.opentelemetry.io/otel/sdk@v1.47.0 go.opentelemetry.io/otel/trace@v1.47.0 \
+        go.opentelemetry.io/otel/log@v1.47.0; \
     go mod download; \
+    CGO_ENABLED=1 go list -deps -tags 'grpcnotrace osusergo netgo' ./cmd/docker >/dev/null; \
     go mod verify; \
     export GOPROXY=off; \
     CGO_ENABLED=1 go build -trimpath -buildvcs=false -tags 'grpcnotrace osusergo netgo' \
