@@ -8,8 +8,11 @@ RUN set -eux; \
     cp vendor.mod go.mod; \
     cp vendor.sum go.sum; \
     export GOTOOLCHAIN=local GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
-    go get golang.org/x/net@v0.62.0; \
+    go get golang.org/x/net@v0.62.0 \
+        go.opentelemetry.io/otel/sdk@v1.47.0 go.opentelemetry.io/otel/trace@v1.47.0 \
+        go.opentelemetry.io/otel/log@v1.47.0; \
     go mod download; \
+    CGO_ENABLED=1 go list -deps -tags 'grpcnotrace osusergo netgo' ./cmd/docker >/dev/null; \
     go mod verify; \
     export GOPROXY=off; \
     CGO_ENABLED=1 go build -trimpath -buildvcs=false -tags 'grpcnotrace osusergo netgo' \
@@ -18,6 +21,9 @@ RUN set -eux; \
     go version -m /out/docker > /out/docker-go-version.txt; \
     grep -F 'go1.27.4' /out/docker-go-version.txt; \
     awk '$1=="dep" && $2=="golang.org/x/net" && $3=="v0.62.0" { found=1 } END { exit !found }' /out/docker-go-version.txt; \
+    for module in go.opentelemetry.io/otel/sdk go.opentelemetry.io/otel/trace; do \
+        awk -v module="$module" '$1=="dep" && $2==module && $3=="v1.47.0" { found=1 } END { exit !found }' /out/docker-go-version.txt; \
+    done; \
     sha256sum /out/docker | cut -d' ' -f1 > /out/docker.sha256
 
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
@@ -36,6 +42,13 @@ ADD --checksum=sha256:94e5d41303265b66af0f8c70ade18bfb77260ad286edee6c8045faddef
 ADD --checksum=sha256:44742b1e9c947ebb3b82215c13d968bd54e2e60bc42244af69301c5d057bb340 https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/libssl3t64_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-libssl3t64.deb
 ADD --checksum=sha256:588e7f17afb9263a348c9587330805fc856536402328bec1660ff3a95e61bb4c https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl.deb
 ADD --checksum=sha256:1b582b937a1f7a8f987da9e1bbfcc806faea714267631ce0fbbd352c924b7daf https://snapshot.ubuntu.com/ubuntu/20260930T000000Z/pool/main/o/openssl/openssl-provider-legacy_3.5.5-1ubuntu3.6_amd64.deb /tmp/pasturestack-openssl-provider-legacy.deb
+
+# Ubuntu 26.04 resolute-security glibc packages for the complete builder family.
+ADD --checksum=sha256:be83aefc14597fba683031a520f303950a7338b95d74decbe625faa51c49933e https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_2.43-2ubuntu2.7_amd64.deb /tmp/pasturestack-glibc/libc6.deb
+ADD --checksum=sha256:c0393ea4fa3c45cefe0351db369d3a4a459edc8045856f2e3612ca17e77b2797 https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc-bin_2.43-2ubuntu2.7_amd64.deb /tmp/pasturestack-glibc/libc-bin.deb
+ADD --checksum=sha256:408ba056d39651c2489b59522a614276d7a96020c6a401e73cd0da7d771764b0 https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc-gconv-modules-extra_2.43-2ubuntu2.7_amd64.deb /tmp/pasturestack-glibc/libc-gconv-modules-extra.deb
+ADD --checksum=sha256:1ecbef0e96b486714a5b5ecd638fd7dc4a70178f7b2530d58c9664f773eecef0 https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc-dev-bin_2.43-2ubuntu2.7_amd64.deb /tmp/pasturestack-glibc/libc-dev-bin.deb
+ADD --checksum=sha256:338a4f0c8fc38f1002447096c62cb412cfa3a5eab034857aec33e343d429551d https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc6-dev_2.43-2ubuntu2.7_amd64.deb /tmp/pasturestack-glibc/libc6-dev.deb
 
 ADD --checksum=sha256:bedeef1cf3268f90338c411cdb0a45b224d0660fd2240f310f380316c8244606 https://security.ubuntu.com/ubuntu/pool/main/b/brotli/libbrotli1_1.2.0-3ubuntu0.1_amd64.deb /tmp/libbrotli1-security.deb
 
@@ -105,6 +118,21 @@ RUN set -eux; \
         dpkg -i "/tmp/$1.deb"; \
         test "$(dpkg-query -W -f='${Version}' "$2")" = "$3"; \
     done; \
+    for package in libc6 libc-bin libc-gconv-modules-extra libc-dev-bin libc6-dev; do \
+        archive="/tmp/pasturestack-glibc/$package.deb"; \
+        test "$(dpkg-deb -f "$archive" Package)" = "$package"; \
+        test "$(dpkg-deb -f "$archive" Source)" = glibc; \
+        test "$(dpkg-deb -f "$archive" Architecture)" = amd64; \
+        test "$(dpkg-deb -f "$archive" Version)" = 2.43-2ubuntu2.7; \
+        dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$package")" lt 2.43-2ubuntu2.7; \
+    done; \
+    dpkg --install /tmp/pasturestack-glibc/*.deb; \
+    audit="$(dpkg --audit)"; \
+    test -z "$audit"; \
+    for package in libc6 libc-bin libc-gconv-modules-extra libc-dev-bin libc6-dev; do \
+        test "$(dpkg-query -W -f='${Version}' "$package")" = 2.43-2ubuntu2.7; \
+    done; \
+    rm -rf /tmp/pasturestack-glibc; \
     dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/IPSEC-VXLAN-OVERLAY-DAPPER-UBUNTU-APT-PACKAGES.tsv; \
