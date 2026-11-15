@@ -725,6 +725,39 @@
       "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/28d50cac38ffe058a044db97525174487ff9f67d/osv/cve/2026/UBUNTU-CVE-2026-9538.json",
       "reason": "Canonical OSV lists the exact Ubuntu 26.04 perl binary without a fixed range endpoint.",
       "checkedAt": "2026-11-13"
+    },
+    {
+      "severity": "MEDIUM",
+      "purl": "pkg:deb/ubuntu/libsystemd0@259.5-0ubuntu3.4?arch=amd64&distro=ubuntu-26.04",
+      "package": "libsystemd0",
+      "id": "CVE-2026-121876",
+      "version": "259.5-0ubuntu3.4",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/dd17a57526859cf8505026729bf015fc2411a952/osv/cve/2026/UBUNTU-CVE-2026-121876.json",
+      "reason": "Canonical OSV includes the installed Ubuntu 26.04 systemd source version and matching binary names without a fixed range endpoint.",
+      "checkedAt": "2026-11-15"
+    },
+    {
+      "severity": "MEDIUM",
+      "purl": "pkg:deb/ubuntu/libudev1@259.5-0ubuntu3.4?arch=amd64&distro=ubuntu-26.04",
+      "package": "libudev1",
+      "id": "CVE-2026-121876",
+      "version": "259.5-0ubuntu3.4",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/dd17a57526859cf8505026729bf015fc2411a952/osv/cve/2026/UBUNTU-CVE-2026-121876.json",
+      "reason": "Canonical OSV includes the installed Ubuntu 26.04 systemd source version and matching binary names without a fixed range endpoint.",
+      "checkedAt": "2026-11-15"
+    },
+    {
+      "severity": "MEDIUM",
+      "purl": "pkg:deb/ubuntu/systemd-standalone-sysusers@259.5-0ubuntu3.4?arch=amd64&distro=ubuntu-26.04",
+      "package": "systemd-standalone-sysusers",
+      "id": "CVE-2026-121876",
+      "version": "259.5-0ubuntu3.4",
+      "status": "no_official_fix",
+      "officialEvidence": "https://raw.githubusercontent.com/canonical/ubuntu-security-notices/dd17a57526859cf8505026729bf015fc2411a952/osv/cve/2026/UBUNTU-CVE-2026-121876.json",
+      "reason": "Canonical OSV includes the installed Ubuntu 26.04 systemd source version and matching binary names without a fixed range endpoint.",
+      "checkedAt": "2026-11-15"
     }
   ],
   "repository": "PastureStack/ipsec-vxlan-overlay-network"

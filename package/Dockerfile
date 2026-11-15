@@ -190,30 +190,47 @@ RUN --mount=from=ubuntu_security_backports,source=/out,target=/opt/pasturestack/
         > /licenses/IPSEC-VXLAN-OVERLAY-RUNTIME-UBUNTU-APT-PACKAGES.tsv; \
     rm -f /var/cache/ldconfig/aux-cache
 
-FROM scratch AS official_glibc
-ADD --checksum=sha256:be83aefc14597fba683031a520f303950a7338b95d74decbe625faa51c49933e https://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_2.43-2ubuntu2.7_amd64.deb /tmp/official-glibc/libc6.deb
-ADD --checksum=sha256:c0393ea4fa3c45cefe0351db369d3a4a459edc8045856f2e3612ca17e77b2797 https://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc-bin_2.43-2ubuntu2.7_amd64.deb /tmp/official-glibc/libc-bin.deb
-ADD --checksum=sha256:408ba056d39651c2489b59522a614276d7a96020c6a401e73cd0da7d771764b0 https://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc-gconv-modules-extra_2.43-2ubuntu2.7_amd64.deb /tmp/official-glibc/libc-gconv-modules-extra.deb
+FROM scratch AS official_ubuntu_security
+ADD --checksum=sha256:be83aefc14597fba683031a520f303950a7338b95d74decbe625faa51c49933e https://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_2.43-2ubuntu2.7_amd64.deb /tmp/official-ubuntu-security/libc6.deb
+ADD --checksum=sha256:c0393ea4fa3c45cefe0351db369d3a4a459edc8045856f2e3612ca17e77b2797 https://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc-bin_2.43-2ubuntu2.7_amd64.deb /tmp/official-ubuntu-security/libc-bin.deb
+ADD --checksum=sha256:408ba056d39651c2489b59522a614276d7a96020c6a401e73cd0da7d771764b0 https://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc-gconv-modules-extra_2.43-2ubuntu2.7_amd64.deb /tmp/official-ubuntu-security/libc-gconv-modules-extra.deb
+# Ubuntu 26.04 resolute-security snapshot, USN-8956-1.
+ADD --checksum=sha256:bedeef1cf3268f90338c411cdb0a45b224d0660fd2240f310f380316c8244606 https://snapshot.ubuntu.com/ubuntu/20261107T200000Z/pool/main/b/brotli/libbrotli1_1.2.0-3ubuntu0.1_amd64.deb /tmp/official-ubuntu-security/libbrotli1.deb
+
 FROM qualified_backports AS runtime
-RUN --mount=from=official_glibc,source=/tmp/official-glibc,target=/tmp/official-glibc,ro \
+RUN --mount=from=official_ubuntu_security,source=/tmp/official-ubuntu-security,target=/tmp/official-ubuntu-security,ro \
     set -eux; \
-    for package in libc6 libc-bin libc-gconv-modules-extra; do \
-        archive="/tmp/official-glibc/$package.deb"; \
+    set -- \
+        'libc6 glibc 2.43-2ubuntu2.7' 'libc-bin glibc 2.43-2ubuntu2.7' \
+        'libc-gconv-modules-extra glibc 2.43-2ubuntu2.7' \
+        'libbrotli1 brotli 1.2.0-3ubuntu0.1'; \
+    for spec in "$@"; do \
+        package="${spec%% *}"; \
+        source_and_version="${spec#* }"; \
+        source="${source_and_version%% *}"; \
+        version="${source_and_version#* }"; \
+        archive="/tmp/official-ubuntu-security/$package.deb"; \
         test "$(dpkg-deb -f "$archive" Package)" = "$package"; \
-        test "$(dpkg-deb -f "$archive" Source)" = glibc; \
+        test "$(dpkg-deb -f "$archive" Source)" = "$source"; \
         test "$(dpkg-deb -f "$archive" Architecture)" = amd64; \
-        test "$(dpkg-deb -f "$archive" Version)" = 2.43-2ubuntu2.7; \
-        dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$package")" lt 2.43-2ubuntu2.7; \
+        test "$(dpkg-deb -f "$archive" Version)" = "$version"; \
+        dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$package")" lt "$version"; \
     done; \
     dpkg --path-include='/usr/share/doc/libc6/*' --path-include='/usr/share/man/man1/getconf.1.gz' \
-        --path-include='/usr/share/man/man1/tzselect.1.gz' --install /tmp/official-glibc/*.deb; \
+        --path-include='/usr/share/man/man1/tzselect.1.gz' --path-include='/usr/share/doc/libbrotli1/*' \
+        --install /tmp/official-ubuntu-security/*.deb; \
     audit="$(dpkg --audit)"; \
     test -z "$audit"; \
-    for package in libc6 libc-bin libc-gconv-modules-extra; do \
+    for spec in "$@"; do \
+        package="${spec%% *}"; \
+        version="${spec##* }"; \
+        test "$(dpkg-query -W -f='${Version}' "$package")" = "$version"; \
         integrity="$(dpkg --verify "$package")"; \
         test -z "$integrity"; \
     done; \
     getent hosts localhost >/dev/null; \
+    curl --version | grep -F 'brotli/'; \
+    printf '%s\n' 'PastureStack' | grep -Pqx 'Pasture(?:Stack)'; \
     rm -f /var/cache/ldconfig/aux-cache /var/log/dpkg.log; \
     dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort > /usr/share/pasturestack/ubuntu-security-packages.tsv
 
